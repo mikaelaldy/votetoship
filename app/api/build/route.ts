@@ -6,7 +6,6 @@ import {
   getBuiltApp,
   setBuiltApp,
   type Idea,
-  type VoteData,
 } from "@/lib/kv";
 import { buildVoteAnalysisPrompt, buildCodegenPrompt } from "@/lib/prompts";
 
