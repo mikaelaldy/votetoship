@@ -1,51 +1,65 @@
 # VoteToShip
 
-> Community votes on web app ideas → The winner gets built live by GLM 5.1
+> Community votes on web app ideas. GLM 5.1 builds the winner live.
 
-Built for the **Build with GLM 5.1 Challenge**.
+Built for the **Z.ai Builder Sprint — Build with GLM 5.1** (Mar 31 – Apr 6, 2026).
+
+**[Live Demo](https://votetoship.vercel.app)** · **[X Thread](https://x.com/placeholder)**
+
+---
 
 ## What It Does
 
-1. **Landing Page** (`/`) — Explains the concept with a clean Vercel-inspired design
-2. **Arena** (`/arena`) — Browse 5 GLM-generated web app ideas, upvote/downvote, then hit "Build Winner"
-3. **GLM Builds** — Two GLM API calls: one to analyze votes & pick the winner, another to generate a complete single-file HTML app
-4. **Live Preview** — Play with the generated app in an iframe, copy the full code
+VoteToShip is a real-time agentic web app where the community decides what gets built, and GLM 5.1 ships it as a playable app in seconds.
+
+1. **Generate Ideas** — GLM 5.1 creates 5 creative, buildable web app ideas
+2. **Vote** — Upvote/downvote anonymously (no login)
+3. **Build Winner** — Two GLM 5.1 calls: one analyzes votes and picks the winner, the second generates a complete interactive web app
+4. **Play** — Interact with the generated app live in an iframe, copy the code
+
+### Why this showcases GLM 5.1
+
+VoteToShip is not another idea generator. It demonstrates GLM 5.1's strengths in **multi-step reasoning** and **code generation**:
+
+- **Long-horizon reasoning**: The model analyzes community votes, weighs feasibility vs popularity, and makes a judgment call on which idea to build
+- **Full-stack code generation**: Produces a complete, working single-file HTML app with Tailwind CSS, vanilla JS, and embedded styles — ready to run
+- **Agentic workflow**: Two sequential GLM calls form a pipeline — vote analysis → code generation — with context passed between them
+- **Real output**: Not a demo or mock — the generated apps are fully interactive and playable
+
+## Screenshots
+
+*Landing page: Clean Vercel-style hero explaining the concept*
+
+*Arena: Vote on ideas, build the winner, play the result live*
 
 ## Tech Stack
 
-- **Next.js 16** (App Router, TypeScript, Tailwind CSS)
-- **GLM 5.1** via `api.z.ai/api/paas/v4/chat/completions`
-- **@vercel/kv** for persistent storage (with in-memory fallback for local dev)
+- **Next.js 16** (App Router, TypeScript, Tailwind CSS 4)
+- **GLM 5.1** via `api.z.ai/api/coding/paas/v4/chat/completions` (Coding Plan endpoint)
+- **localStorage** for client-side persistence (ideas, votes, built apps survive refresh)
 - **Vercel** for deployment
 
-## Replicate This Project
+## Quick Start
 
 ### 1. Clone & Install
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/aldy1205/votetoship.git
 cd votetoship
 npm install
 ```
 
-### 2. Set Up Environment Variables
+### 2. Set Up Environment
 
-Create a `.env.local` file:
+Create `.env.local`:
 
 ```env
 GLM_API_KEY=your_glm_api_key_here
 ```
 
-Optional (for persistent storage on Vercel):
-```env
-KV_REST_API_URL=your_kv_url
-KV_REST_API_TOKEN=your_kv_token
-KV_REST_API_READ_ONLY_TOKEN=your_kv_readonly_token
-```
+Get your key at [open.bigmodel.cn](https://open.bigmodel.cn).
 
-> Without KV vars, the app uses an in-memory store (data resets on server restart).
-
-### 3. Run Locally
+### 3. Run
 
 ```bash
 npm run dev
@@ -53,76 +67,70 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### 4. Deploy to Vercel
-
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Link project
-vercel link
-
-# Add your GLM API key as env var
-echo "your_glm_api_key" | vercel env add GLM_API_KEY production
-echo "your_glm_api_key" | vercel env add GLM_API_KEY preview
-echo "your_glm_api_key" | vercel env add GLM_API_KEY development
-
-# Deploy
-vercel --prod
-```
-
-### 5. (Optional) Add Vercel KV for Persistence
-
-1. Go to your Vercel project dashboard
-2. Navigate to **Storage** → **Create Database** → select **Redis (Upstash)**
-3. Link it to your `votetoship` project
-4. The KV env vars will be auto-injected into your deployments
-
-### 6. Disable Deployment Protection
-
-If your Vercel project has authentication protection enabled:
-1. Go to Vercel dashboard → your project → **Settings** → **Deployment Protection**
-2. Set to **Disabled** (or "Only Preview Deployments")
-3. Redeploy: `vercel --prod`
-
 ## Project Structure
 
 ```
 app/
-├── layout.tsx              # Root layout (Inter font, Vercel-style)
-├── page.tsx                # Landing page
-├── globals.css             # Tailwind + Vercel design tokens
+├── layout.tsx              Root layout (Inter font)
+├── page.tsx                Landing page
+├── globals.css             Tailwind + design tokens
 ├── arena/
-│   └── page.tsx            # Main arena — client component
+│   └── page.tsx            Main arena — client component with localStorage
 └── api/
-    ├── ideas/route.ts      # GET/POST — fetch or generate ideas via GLM
-    ├── vote/route.ts       # GET/POST — read votes or cast a vote
-    └── build/route.ts      # GET/POST — read last build or trigger new build
+    ├── ideas/route.ts      POST — generate 5 ideas via GLM 5.1
+    └── build/route.ts      POST — analyze votes + generate app (2 GLM calls)
 lib/
-├── glm.ts                  # GLM 5.1 API client wrapper
-├── kv.ts                   # Storage layer (Vercel KV + in-memory fallback)
-└── prompts.ts              # Prompt templates for idea gen, vote analysis, codegen
+├── glm.ts                  GLM 5.1 client (coding endpoint, reasoning_content)
+├── kv.ts                   Storage layer (unused in current localStorage setup)
+└── prompts.ts              Prompt templates for idea gen, vote analysis, codegen
 ```
 
-## GLM API Flow
+## GLM 5.1 Integration
+
+### Endpoint
+
+The app uses the **Coding Plan endpoint** (`api.z.ai/api/coding/paas/v4/chat/completions`) with model `GLM-5.1`. This endpoint provides higher token limits and better code generation compared to the general endpoint.
+
+### API Flow
 
 **Generate Ideas** (1 call):
-- System: creative web app idea generator
-- Returns: 5 ideas with title + description
+- Prompt asks for 5 diverse, creative web app ideas
+- Returns JSON array with title + description
 
-**Build Winner** (2 calls):
-1. **Vote Analysis** — Analyzes all ideas with vote counts, picks the best candidate
-2. **Code Generation** — Generates a complete single-file HTML app with Tailwind CDN + vanilla JS
+**Build Winner** (2 sequential calls):
+1. **Vote Analysis** — Receives all ideas with vote counts, picks the best candidate based on community enthusiasm + feasibility + fun factor. Returns `{ winnerId, reasoning }`
+2. **Code Generation** — Builds a complete single-file HTML app for the winning idea with Tailwind CDN, embedded `<style>` and `<script>`, dark theme, fully interactive
+
+### Handling GLM 5.1 Responses
+
+GLM 5.1 returns both `content` and `reasoning_content` fields. Sometimes `content` is empty and only `reasoning_content` has data. The client handles both:
+
+```ts
+return msg?.content || msg?.reasoning_content || "";
+```
+
+### Token Usage
+
+- `max_tokens: 16384` for all calls (GLM 5.1 uses tokens for reasoning)
+- `temperature: 0.3` for vote analysis (deterministic), `0.4` for code generation (slightly creative)
 
 ## Design System
 
-Vercel-inspired UI:
-- Light mode, `#F9F9F9` background
-- Inter font family
-- 4px grid spacing
-- `#000001` accent color for buttons/links
+Vercel-inspired light UI:
+- `#F9F9F9` background, `#000001` accents
+- Inter font, 4px grid
 - `#C8CDD1` borders, `#797979` secondary text
-- 22px pill-radius buttons, 6px card radius
+- 22px pill buttons, 6px card radius
+- LEADING badge on highest-voted idea
+
+## Architecture Decisions
+
+| Decision | Why |
+|---|---|
+| localStorage over server DB | No auth, no login — voting is anonymous and client-side. Persists across refreshes without backend |
+| Two GLM calls for build | Separates reasoning (pick winner) from generation (build app). Cleaner prompts, better results |
+| Coding Plan endpoint | General endpoint returns "insufficient balance" errors. Coding endpoint works with the GLM key |
+| Single HTML output | Generated apps are self-contained — copy-paste and run anywhere |
 
 ## License
 
