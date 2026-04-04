@@ -1,4 +1,4 @@
-const GLM_API_URL = "https://api.z.ai/api/paas/v4/chat/completions";
+const GLM_API_URL = "https://api.z.ai/api/coding/paas/v4/chat/completions";
 
 interface GLMMessage {
   role: "system" | "user" | "assistant";
@@ -9,6 +9,7 @@ interface GLMResponse {
   choices: Array<{
     message: {
       content: string;
+      reasoning_content?: string;
     };
   }>;
 }
@@ -27,10 +28,10 @@ export async function callGLM(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "glm-4-plus",
+      model: "GLM-5.1",
       messages,
       temperature,
-      max_tokens: 8192,
+      max_tokens: 16384,
     }),
   });
 
@@ -40,7 +41,8 @@ export async function callGLM(
   }
 
   const data: GLMResponse = await response.json();
-  return data.choices[0]?.message?.content ?? "";
+  const msg = data.choices[0]?.message;
+  return msg?.content || msg?.reasoning_content || "";
 }
 
 export function extractJSON<T>(raw: string): T {
