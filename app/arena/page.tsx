@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 
 interface Idea {
@@ -13,6 +13,8 @@ interface Votes {
   up: number;
   down: number;
 }
+
+type BuildPhase = "idle" | "analyzing" | "generating" | "done";
 
 const STORAGE_KEYS = {
   ideas: "vts_ideas",
@@ -38,6 +40,12 @@ function saveJSON(key: string, value: unknown) {
   } catch {}
 }
 
+function formatElapsed(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
 export default function ArenaPage() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [votes, setVotes] = useState<Record<string, Votes>>({});
@@ -45,16 +53,23 @@ export default function ArenaPage() {
   const [winnerTitle, setWinnerTitle] = useState<string | null>(null);
   const [buildReasoning, setBuildReasoning] = useState<string | null>(null);
   const [loadingIdeas, setLoadingIdeas] = useState(false);
-  const [loadingBuild, setLoadingBuild] = useState(false);
   const [copied, setCopied] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+
+  const [buildPhase, setBuildPhase] = useState<BuildPhase>("idle");
+  const [buildElapsed, setBuildElapsed] = useState(0);
+  const [liveCode, setLiveCode] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const codeEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIdeas(loadJSON(STORAGE_KEYS.ideas, []));
     setVotes(loadJSON<Record<string, Votes>>(STORAGE_KEYS.votes, {}));
     setBuiltHtml(loadJSON<string | null>(STORAGE_KEYS.builtHtml, null));
     setWinnerTitle(loadJSON<string | null>(STORAGE_KEYS.winnerTitle, null));
-    setBuildReasoning(loadJSON<string | null>(STORAGE_KEYS.buildReasoning, null));
+    setBuildReasoning(
+      loadJSON<string | null>(STORAGE_KEYS.buildReasoning, null)
+    );
     setHydrated(true);
   }, []);
 
@@ -86,6 +101,18 @@ export default function ArenaPage() {
     else localStorage.removeItem(STORAGE_KEYS.buildReasoning);
   }, [buildReasoning, hydrated]);
 
+  useEffect(() => {
+    codeEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [liveCode]);
+
+  useEffect(() => {
+    if (buildPhase !== "analyzing" && buildPhase !== "generating") return;
+    const interval = setInterval(() => {
+      setBuildElapsed((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [buildPhase]);
+
   const handleGenerateIdeas = useCallback(async () => {
     setLoadingIdeas(true);
     try {
@@ -97,6 +124,7 @@ export default function ArenaPage() {
         setBuiltHtml(null);
         setWinnerTitle(null);
         setBuildReasoning(null);
+        setBuildPhase("idle");
       } else {
         const data = await res.json();
         alert(data.error || "Failed to generate ideas");
@@ -108,43 +136,102 @@ export default function ArenaPage() {
     }
   }, []);
 
-  const handleVote = useCallback((ideaId: string, direction: "up" | "down") => {
-    setVotes((prev) => {
-      const current = prev[ideaId] ?? { up: 0, down: 0 };
-      const updated =
-        direction === "up"
-          ? { up: current.up + 1, down: current.down }
-          : { up: current.up, down: current.down + 1 };
-      return { ...prev, [ideaId]: updated };
-    });
-  }, []);
+  const handleVote = useCallback(
+    (ideaId: string, direction: "up" | "down") => {
+      setVotes((prev) => {
+        const current = prev[ideaId] ?? { up: 0, down: 0 };
+        const updated =
+          direction === "up"
+            ? { up: current.up + 1, down: current.down }
+            : { up: current.up, down: current.down + 1 };
+        return { ...prev, [ideaId]: updated };
+      });
+    },
+    []
+  );
 
   const handleBuild = useCallback(async () => {
     if (ideas.length === 0) return;
-    setLoadingBuild(true);
+
+    setBuildPhase("analyzing");
+    setBuildElapsed(0);
+    setLiveCode("");
+    setStatusMessage("Analyzing votes...");
+    setBuiltHtml(null);
+    setWinnerTitle(null);
+    setBuildReasoning(null);
+
+    const ideasWithVotes = ideas.map((idea) => ({
+      ...idea,
+      ...(votes[idea.id] ?? { up: 0, down: 0 }),
+    }));
+
     try {
-      const ideasWithVotes = ideas.map((idea) => ({
-        ...idea,
-        ...(votes[idea.id] ?? { up: 0, down: 0 }),
-      }));
       const res = await fetch("/api/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ideasWithVotes }),
       });
-      if (res.ok) {
+
+      if (!res.ok) {
         const data = await res.json();
-        setBuiltHtml(data.html);
-        setWinnerTitle(data.winner.title);
-        setBuildReasoning(data.reasoning);
-      } else {
-        const data = await res.json();
-        alert(data.error || "Build failed");
+        throw new Error(data.error || "Build request failed");
       }
-    } catch {
-      alert("Build failed — check your connection");
-    } finally {
-      setLoadingBuild(false);
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulatedCode = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+
+          try {
+            const event = JSON.parse(raw);
+            switch (event.type) {
+              case "status":
+                setStatusMessage(event.message);
+                break;
+              case "analysis":
+                setWinnerTitle(event.winner.title);
+                setBuildReasoning(event.reasoning);
+                setBuildPhase("generating");
+                setStatusMessage(`Generating ${event.winner.title}...`);
+                break;
+              case "code":
+                accumulatedCode += event.content;
+                setLiveCode(accumulatedCode);
+                break;
+              case "done":
+                setBuiltHtml(event.html);
+                setBuildPhase("done");
+                setStatusMessage("");
+                break;
+              case "error":
+                throw new Error(event.message);
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message !== "Build request failed") {
+              throw e;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Build failed");
+      setBuildPhase("idle");
+      setStatusMessage("");
     }
   }, [ideas, votes]);
 
@@ -168,6 +255,7 @@ export default function ArenaPage() {
   }
 
   const maxScore = Math.max(0, ...ideas.map((i) => getScore(i.id)));
+  const isBuilding = buildPhase === "analyzing" || buildPhase === "generating";
 
   return (
     <div className="min-h-dvh" style={{ background: "#F9F9F9" }}>
@@ -202,7 +290,7 @@ export default function ArenaPage() {
           <div className="flex gap-[10px]">
             <button
               onClick={handleGenerateIdeas}
-              disabled={loadingIdeas}
+              disabled={loadingIdeas || isBuilding}
               className="px-[20px] py-[10px] rounded-[22px] text-[14px] font-medium border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 borderColor: "#C8CDD1",
@@ -214,11 +302,11 @@ export default function ArenaPage() {
             </button>
             <button
               onClick={handleBuild}
-              disabled={loadingBuild || ideas.length === 0}
+              disabled={isBuilding || ideas.length === 0}
               className="px-[24px] py-[10px] rounded-[22px] text-[14px] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: "#000001", color: "#fff" }}
             >
-              {loadingBuild ? "Building..." : "Build Winner"}
+              {isBuilding ? "Building..." : "Build Winner"}
             </button>
           </div>
         </div>
@@ -345,34 +433,76 @@ export default function ArenaPage() {
           </div>
         )}
 
-        {loadingBuild && (
-          <div
-            className="rounded-[6px] border p-[54px] text-center"
-            style={{ borderColor: "#C8CDD1", background: "#fff" }}
-          >
+        {(isBuilding || buildPhase === "done") && (
+          <div className="mb-[20px]">
             <div
-              className="text-[20px] font-medium mb-[10px]"
-              style={{ color: "#1B1B1B" }}
+              className="rounded-[6px] overflow-hidden border"
+              style={{ borderColor: "#333" }}
             >
-              GLM 5.1 is building...
+              <div
+                className="flex items-center justify-between px-[16px] py-[10px]"
+                style={{ background: "#1a1a1a" }}
+              >
+                <div className="flex items-center gap-[8px]">
+                  {isBuilding && (
+                    <span
+                      className="inline-block w-[8px] h-[8px] rounded-full"
+                      style={{
+                        background:
+                          buildPhase === "analyzing" ? "#facc15" : "#22c55e",
+                      }}
+                    />
+                  )}
+                  {buildPhase === "done" && (
+                    <span
+                      className="inline-block w-[8px] h-[8px] rounded-full"
+                      style={{ background: "#22c55e" }}
+                    />
+                  )}
+                  <span
+                    className="text-[13px] font-medium"
+                    style={{ color: "#9ca3af" }}
+                  >
+                    {buildPhase === "done"
+                      ? winnerTitle
+                        ? `Built: ${winnerTitle} — ${formatElapsed(buildElapsed)}`
+                        : `Done — ${formatElapsed(buildElapsed)}`
+                      : statusMessage}
+                  </span>
+                </div>
+                <span
+                  className="text-[13px] font-mono tabular-nums"
+                  style={{ color: "#9ca3af" }}
+                >
+                  {formatElapsed(buildElapsed)}
+                </span>
+              </div>
+              <div
+                className="px-[16px] py-[16px] overflow-auto font-mono text-[13px] leading-[1.6]"
+                style={{
+                  background: "#0d0d0d",
+                  color: "#e2e8f0",
+                  maxHeight: "400px",
+                }}
+              >
+                <code style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {liveCode}
+                  {isBuilding && (
+                    <span style={{ animation: "blink 1s step-end infinite" }}>
+                      ▊
+                    </span>
+                  )}
+                </code>
+                <div ref={codeEndRef} />
+              </div>
             </div>
-            <p className="text-[14px]" style={{ color: "#797979" }}>
-              Analyzing votes, picking the winner, and generating the app. This
-              may take 30-60 seconds.
-            </p>
           </div>
         )}
 
-        {builtHtml && !loadingBuild && (
-          <div className="mt-[10px]">
+        {buildPhase === "done" && builtHtml && (
+          <div className="mt-[0px]">
             <div className="flex items-center justify-between mb-[10px]">
               <div>
-                <h2
-                  className="text-[24px] font-bold"
-                  style={{ color: "#1B1B1B" }}
-                >
-                  {winnerTitle ? `Built: ${winnerTitle}` : "Live Preview"}
-                </h2>
                 {buildReasoning && (
                   <p
                     className="text-[14px] mt-[4px]"
