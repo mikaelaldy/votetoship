@@ -3,15 +3,15 @@
   "mcp": {
     "zread": {
       "type": "local",
-      "command": ["npx", "-y", "mcp-remote", "https://api.z.ai/api/mcp/zread/mcp", "--header", "Authorization: Bearer {env:ZAI_API_KEY}", "--transport", "http-only"]
+      "command": ["npx", "-y", "mcp-remote", "https://api.z.ai/api/mcp/zread/mcp", "--header", "Authorization: Bearer 59980e36a30c4fdb9c5beea577aa805f.lyikFfuNoNhU0BMR", "--transport", "http-only"]
     },
     "zai_web_search": {
       "type": "local",
-      "command": ["npx", "-y", "mcp-remote", "https://api.z.ai/api/mcp/search/mcp", "--header", "Authorization: Bearer {env:ZAI_API_KEY}", "--transport", "http-only"]
+      "command": ["npx", "-y", "mcp-remote", "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp", "--header", "Authorization: Bearer 59980e36a30c4fdb9c5beea577aa805f.lyikFfuNoNhU0BMR", "--transport", "http-only"]
     },
     "zai_web_reader": {
       "type": "local",
-      "command": ["npx", "-y", "mcp-remote", "https://api.z.ai/api/mcp/reader/mcp", "--header", "Authorization: Bearer {env:ZAI_API_KEY}", "--transport", "http-only"]
+      "command": ["npx", "-y", "mcp-remote", "https://open.bigmodel.cn/api/mcp/web_reader/mcp", "--header", "Authorization: Bearer 59980e36a30c4fdb9c5beea577aa805f.lyikFfuNoNhU0BMR", "--transport", "http-only"]
     }
   }
 }

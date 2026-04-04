@@ -14,10 +14,28 @@ interface Votes {
   down: number;
 }
 
-interface BuildResult {
-  winner: Idea;
-  reasoning: string;
-  html: string;
+const STORAGE_KEYS = {
+  ideas: "vts_ideas",
+  votes: "vts_votes",
+  builtHtml: "vts_builtHtml",
+  winnerTitle: "vts_winnerTitle",
+  buildReasoning: "vts_buildReasoning",
+} as const;
+
+function loadJSON<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJSON(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
 }
 
 export default function ArenaPage() {
@@ -25,50 +43,50 @@ export default function ArenaPage() {
   const [votes, setVotes] = useState<Record<string, Votes>>({});
   const [builtHtml, setBuiltHtml] = useState<string | null>(null);
   const [winnerTitle, setWinnerTitle] = useState<string | null>(null);
+  const [buildReasoning, setBuildReasoning] = useState<string | null>(null);
   const [loadingIdeas, setLoadingIdeas] = useState(false);
   const [loadingBuild, setLoadingBuild] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [buildReasoning, setBuildReasoning] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
-  const fetchIdeas = useCallback(async () => {
-    const [ideasRes, votesRes] = await Promise.all([
-      fetch("/api/ideas"),
-      fetch("/api/vote"),
-    ]);
-    if (ideasRes.ok) {
-      const data = await ideasRes.json();
-      setIdeas(data.ideas);
-    }
-    if (votesRes.ok) {
-      const data = await votesRes.json();
-      setVotes(data.votes);
-    }
+  useEffect(() => {
+    setIdeas(loadJSON(STORAGE_KEYS.ideas, []));
+    setVotes(loadJSON<Record<string, Votes>>(STORAGE_KEYS.votes, {}));
+    setBuiltHtml(loadJSON<string | null>(STORAGE_KEYS.builtHtml, null));
+    setWinnerTitle(loadJSON<string | null>(STORAGE_KEYS.winnerTitle, null));
+    setBuildReasoning(loadJSON<string | null>(STORAGE_KEYS.buildReasoning, null));
+    setHydrated(true);
   }, []);
 
   useEffect(() => {
-    fetchIdeas();
-    fetchExistingBuild();
-    const interval = setInterval(async () => {
-      const res = await fetch("/api/vote");
-      if (res.ok) {
-        const data = await res.json();
-        setVotes(data.votes);
-      }
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [fetchIdeas]);
+    if (!hydrated) return;
+    saveJSON(STORAGE_KEYS.ideas, ideas);
+  }, [ideas, hydrated]);
 
-  const fetchExistingBuild = async () => {
-    const res = await fetch("/api/build");
-    if (res.ok) {
-      const data = await res.json();
-      if (data.html) {
-        setBuiltHtml(data.html);
-      }
-    }
-  };
+  useEffect(() => {
+    if (!hydrated) return;
+    saveJSON(STORAGE_KEYS.votes, votes);
+  }, [votes, hydrated]);
 
-  const handleGenerateIdeas = async () => {
+  useEffect(() => {
+    if (!hydrated) return;
+    if (builtHtml) saveJSON(STORAGE_KEYS.builtHtml, builtHtml);
+    else localStorage.removeItem(STORAGE_KEYS.builtHtml);
+  }, [builtHtml, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (winnerTitle) saveJSON(STORAGE_KEYS.winnerTitle, winnerTitle);
+    else localStorage.removeItem(STORAGE_KEYS.winnerTitle);
+  }, [winnerTitle, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (buildReasoning) saveJSON(STORAGE_KEYS.buildReasoning, buildReasoning);
+    else localStorage.removeItem(STORAGE_KEYS.buildReasoning);
+  }, [buildReasoning, hydrated]);
+
+  const handleGenerateIdeas = useCallback(async () => {
     setLoadingIdeas(true);
     try {
       const res = await fetch("/api/ideas", { method: "POST" });
@@ -79,30 +97,43 @@ export default function ArenaPage() {
         setBuiltHtml(null);
         setWinnerTitle(null);
         setBuildReasoning(null);
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to generate ideas");
       }
+    } catch {
+      alert("Failed to generate ideas — check your connection");
     } finally {
       setLoadingIdeas(false);
     }
-  };
+  }, []);
 
-  const handleVote = async (ideaId: string, direction: "up" | "down") => {
-    const res = await fetch("/api/vote", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ideaId, direction }),
+  const handleVote = useCallback((ideaId: string, direction: "up" | "down") => {
+    setVotes((prev) => {
+      const current = prev[ideaId] ?? { up: 0, down: 0 };
+      const updated =
+        direction === "up"
+          ? { up: current.up + 1, down: current.down }
+          : { up: current.up, down: current.down + 1 };
+      return { ...prev, [ideaId]: updated };
     });
-    if (res.ok) {
-      const data = await res.json();
-      setVotes((prev) => ({ ...prev, [ideaId]: data.votes }));
-    }
-  };
+  }, []);
 
-  const handleBuild = async () => {
+  const handleBuild = useCallback(async () => {
+    if (ideas.length === 0) return;
     setLoadingBuild(true);
     try {
-      const res = await fetch("/api/build", { method: "POST" });
+      const ideasWithVotes = ideas.map((idea) => ({
+        ...idea,
+        ...(votes[idea.id] ?? { up: 0, down: 0 }),
+      }));
+      const res = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ideasWithVotes }),
+      });
       if (res.ok) {
-        const data: BuildResult = await res.json();
+        const data = await res.json();
         setBuiltHtml(data.html);
         setWinnerTitle(data.winner.title);
         setBuildReasoning(data.reasoning);
@@ -115,19 +146,26 @@ export default function ArenaPage() {
     } finally {
       setLoadingBuild(false);
     }
-  };
+  }, [ideas, votes]);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     if (!builtHtml) return;
     await navigator.clipboard.writeText(builtHtml);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
+  }, [builtHtml]);
 
-  const getScore = (ideaId: string) => {
-    const v = votes[ideaId];
-    return v ? v.up - v.down : 0;
-  };
+  const getScore = useCallback(
+    (ideaId: string) => {
+      const v = votes[ideaId];
+      return v ? v.up - v.down : 0;
+    },
+    [votes]
+  );
+
+  if (!hydrated) {
+    return null;
+  }
 
   const maxScore = Math.max(0, ...ideas.map((i) => getScore(i.id)));
 
@@ -142,10 +180,7 @@ export default function ArenaPage() {
           >
             VoteToShip
           </Link>
-          <span
-            className="text-[14px]"
-            style={{ color: "#797979" }}
-          >
+          <span className="text-[14px]" style={{ color: "#797979" }}>
             Powered by GLM 5.1
           </span>
         </div>
@@ -181,10 +216,7 @@ export default function ArenaPage() {
               onClick={handleBuild}
               disabled={loadingBuild || ideas.length === 0}
               className="px-[24px] py-[10px] rounded-[22px] text-[14px] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: "#000001",
-                color: "#fff",
-              }}
+              style={{ background: "#000001", color: "#fff" }}
             >
               {loadingBuild ? "Building..." : "Build Winner"}
             </button>
@@ -194,10 +226,7 @@ export default function ArenaPage() {
         {ideas.length === 0 && !loadingIdeas && (
           <div
             className="text-center py-[92px] rounded-[6px] border"
-            style={{
-              borderColor: "#C8CDD1",
-              color: "#797979",
-            }}
+            style={{ borderColor: "#C8CDD1", color: "#797979" }}
           >
             <p className="text-[20px] mb-[16px]">No ideas yet</p>
             <button
@@ -216,10 +245,7 @@ export default function ArenaPage() {
               <div
                 key={i}
                 className="rounded-[6px] border p-[24px]"
-                style={{
-                  borderColor: "#C8CDD1",
-                  background: "#fff",
-                }}
+                style={{ borderColor: "#C8CDD1", background: "#fff" }}
               >
                 <div
                   className="h-[20px] w-[60%] rounded mb-[10px]"
@@ -284,7 +310,7 @@ export default function ArenaPage() {
                       }}
                       aria-label={`Upvote ${idea.title}`}
                     >
-                      ▲ {(votes[idea.id]?.up ?? 0)}
+                      ▲ {votes[idea.id]?.up ?? 0}
                     </button>
                     <button
                       onClick={() => handleVote(idea.id, "down")}
@@ -296,12 +322,17 @@ export default function ArenaPage() {
                       }}
                       aria-label={`Downvote ${idea.title}`}
                     >
-                      ▼ {(votes[idea.id]?.down ?? 0)}
+                      ▼ {votes[idea.id]?.down ?? 0}
                     </button>
                     <span
                       className="text-[14px] font-bold ml-auto tabular-nums"
                       style={{
-                        color: score > 0 ? "#1B1B1B" : score < 0 ? "#c00" : "#797979",
+                        color:
+                          score > 0
+                            ? "#1B1B1B"
+                            : score < 0
+                            ? "#c00"
+                            : "#797979",
                       }}
                     >
                       {score > 0 ? "+" : ""}
@@ -319,12 +350,15 @@ export default function ArenaPage() {
             className="rounded-[6px] border p-[54px] text-center"
             style={{ borderColor: "#C8CDD1", background: "#fff" }}
           >
-            <div className="text-[20px] font-medium mb-[10px]" style={{ color: "#1B1B1B" }}>
+            <div
+              className="text-[20px] font-medium mb-[10px]"
+              style={{ color: "#1B1B1B" }}
+            >
               GLM 5.1 is building...
             </div>
             <p className="text-[14px]" style={{ color: "#797979" }}>
-              Analyzing votes, picking the winner, and generating the app.
-              This may take 30-60 seconds.
+              Analyzing votes, picking the winner, and generating the app. This
+              may take 30-60 seconds.
             </p>
           </div>
         )}
@@ -337,12 +371,13 @@ export default function ArenaPage() {
                   className="text-[24px] font-bold"
                   style={{ color: "#1B1B1B" }}
                 >
-                  {winnerTitle
-                    ? `Built: ${winnerTitle}`
-                    : "Live Preview"}
+                  {winnerTitle ? `Built: ${winnerTitle}` : "Live Preview"}
                 </h2>
                 {buildReasoning && (
-                  <p className="text-[14px] mt-[4px]" style={{ color: "#797979" }}>
+                  <p
+                    className="text-[14px] mt-[4px]"
+                    style={{ color: "#797979" }}
+                  >
                     {buildReasoning}
                   </p>
                 )}
@@ -361,10 +396,7 @@ export default function ArenaPage() {
             </div>
             <div
               className="rounded-[6px] border overflow-hidden"
-              style={{
-                borderColor: "#C8CDD1",
-                background: "#fff",
-              }}
+              style={{ borderColor: "#C8CDD1", background: "#fff" }}
             >
               <iframe
                 srcDoc={builtHtml}
