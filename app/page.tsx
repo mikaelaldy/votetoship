@@ -102,7 +102,23 @@ export default function LandingPage() {
       >
         <div className="max-w-[1200px] mx-auto px-[24px] text-center">
           <p className="text-[13px]" style={{ color: "#797979" }}>
-            Built for the Build with GLM 5.1 Challenge · Powered by GLM 5.1
+            Built for the Build with GLM 5.1 Challenge · Powered by GLM 5.1 ·{" "}
+            <a
+              href="https://mikacend.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#1B1B1B" }}
+            >
+              mikacend
+            </a>
+            {" · "}
+            <Link href="/history" style={{ color: "#1B1B1B" }}>
+              History
+            </Link>
+            {" · "}
+            <Link href="/next" style={{ color: "#1B1B1B" }}>
+              What's Next
+            </Link>
           </p>
         </div>
       </footer>
