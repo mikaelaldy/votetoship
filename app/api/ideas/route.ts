@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { callGLM, extractJSON } from "@/lib/glm";
-import { getIdeas, setIdeas } from "@/lib/kv";
+import { setCurrentIdeas, getCurrentIdeas } from "@/lib/db";
 import { buildIdeasPrompt } from "@/lib/prompts";
 
 function generateId(): string {
@@ -25,7 +25,7 @@ export async function POST() {
       description: idea.description,
     }));
 
-    await setIdeas(ideas);
+    await setCurrentIdeas(ideas);
 
     return NextResponse.json({ ideas });
   } catch (error) {
@@ -36,7 +36,7 @@ export async function POST() {
 
 export async function GET() {
   try {
-    const ideas = await getIdeas();
+    const ideas = await getCurrentIdeas();
     return NextResponse.json({ ideas });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

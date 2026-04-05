@@ -10,12 +10,13 @@ Built for the **Z.ai Builder Sprint — Build with GLM 5.1** (Mar 31 – Apr 6, 
 
 ## What It Does
 
-VoteToShip is a real-time agentic web app where the community decides what gets built, and GLM 5.1 ships it as a playable app in seconds.
+VoteToShip is a real-time agentic web app where the community decides what gets built, and GLM 5.1 ships it as a playable app in seconds. All votes and built apps are synchronized globally via Firebase Realtime Database.
 
 1. **Generate Ideas** — GLM 5.1 creates 5 creative, buildable web app ideas
-2. **Vote** — Upvote/downvote anonymously (no login)
+2. **Vote** — Upvote/downvote anonymously (no login), votes sync globally in real-time
 3. **Build Winner** — Two GLM 5.1 calls: one analyzes votes and picks the winner, the second generates a complete interactive web app
-4. **Play** — Interact with the generated app live in an iframe, copy the code
+4. **Play** — Interact with the generated app live in an iframe, copy the code, download as .html
+5. **History** — All past winners are saved and browsable at `/history`
 
 ### Why this showcases GLM 5.1
 
@@ -26,17 +27,11 @@ VoteToShip is not another idea generator. It demonstrates GLM 5.1's strengths in
 - **Agentic workflow**: Two sequential GLM calls form a pipeline — vote analysis → code generation — with context passed between them
 - **Real output**: Not a demo or mock — the generated apps are fully interactive and playable
 
-## Screenshots
-
-*Landing page: Clean Vercel-style hero explaining the concept*
-
-*Arena: Vote on ideas, build the winner, play the result live*
-
 ## Tech Stack
 
 - **Next.js 16** (App Router, TypeScript, Tailwind CSS 4)
 - **GLM 5.1** via `api.z.ai/api/coding/paas/v4/chat/completions` (Coding Plan endpoint)
-- **localStorage** for client-side persistence (ideas, votes, built apps survive refresh)
+- **Firebase Realtime Database** for global state sync (ideas, votes, built apps)
 - **Vercel** for deployment
 
 ## Quick Start
@@ -49,23 +44,56 @@ cd votetoship
 npm install
 ```
 
-### 2. Set Up Environment
+### 2. Set Up Firebase
 
-Create `.env.local`:
+1. Go to [console.firebase.google.com](https://console.firebase.google.com)
+2. Create a new project
+3. Go to **Realtime Database** → **Create Database** → start in **test mode**
+4. Go to **Project Settings** → **General** → scroll to **Your apps** → click the **Web** icon
+5. Copy the config values
+
+### 3. Set Up Environment Variables
+
+Create a `.env.local` file:
 
 ```env
 GLM_API_KEY=your_glm_api_key_here
+
+NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://your_project-default-rtdb.firebaseio.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 ```
 
-Get your key at [open.bigmodel.cn](https://open.bigmodel.cn).
-
-### 3. Run
+### 4. Run Locally
 
 ```bash
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+### 5. Deploy to Vercel
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Link project
+vercel link
+
+# Add env vars
+vercel env add GLM_API_KEY production
+vercel env add NEXT_PUBLIC_FIREBASE_API_KEY production
+vercel env add NEXT_PUBLIC_FIREBASE_DATABASE_URL production
+# ... add all Firebase vars
+
+# Deploy
+vercel --prod
+```
 
 ## Project Structure
 
@@ -75,44 +103,76 @@ app/
 ├── page.tsx                Landing page
 ├── globals.css             Tailwind + design tokens
 ├── arena/
-│   └── page.tsx            Main arena — client component with localStorage
+│   └── page.tsx            Battle arena — Firebase realtime votes, auto-build
+├── build/
+│   └── page.tsx            Watch GLM 5.1 write code live, auto-redirects to /app/[slug]
+├── app/[slug]/
+│   └── page.tsx            Individual built app — preview, download, copy
+├── history/
+│   └── page.tsx            Gallery of all past built apps
+├── next/
+│   └── page.tsx            Roadmap page
 └── api/
-    ├── ideas/route.ts      POST — generate 5 ideas via GLM 5.1
-    └── build/route.ts      POST — analyze votes + generate app (2 GLM calls)
+    ├── ideas/route.ts      POST generates ideas via GLM, saves to Firebase
+    └── build/route.ts      SSE streaming — reads from Firebase, saves to Firebase
 lib/
-├── glm.ts                  GLM 5.1 client (coding endpoint, reasoning_content)
-├── kv.ts                   Storage layer (unused in current localStorage setup)
-└── prompts.ts              Prompt templates for idea gen, vote analysis, codegen
+├── firebase.ts             Firebase client initialization (lazy)
+├── db.ts                   All database functions (ideas, votes, apps, realtime listeners)
+├── glm.ts                  GLM 5.1 client (coding endpoint, streaming)
+├── prompts.ts              Prompt templates
+└── storage.ts              slugify helper + BuiltApp type
 ```
+
+## Route Map
+
+| Route | What |
+|---|---|
+| `/` | Landing page with hero + CTA |
+| `/arena` | Battle arena — auto-generates ideas, realtime votes, auto-builds after all voted |
+| `/build` | Watch GLM 5.1 write code in real-time (terminal + timer + blinking cursor) |
+| `/app/[slug]` | Individual app page — preview iframe, download .html, copy code |
+| `/history` | Gallery of all past winners with download links |
+| `/next` | Roadmap — what's planned next |
 
 ## GLM 5.1 Integration
 
 ### Endpoint
 
-The app uses the **Coding Plan endpoint** (`api.z.ai/api/coding/paas/v4/chat/completions`) with model `GLM-5.1`. This endpoint provides higher token limits and better code generation compared to the general endpoint.
+The app uses the **Coding Plan endpoint** (`api.z.ai/api/coding/paas/v4/chat/completions`) with model `GLM-5.1`.
 
 ### API Flow
 
 **Generate Ideas** (1 call):
 - Prompt asks for 5 diverse, creative web app ideas
 - Returns JSON array with title + description
+- Saves to Firebase `currentBattle/ideas`
 
-**Build Winner** (2 sequential calls):
-1. **Vote Analysis** — Receives all ideas with vote counts, picks the best candidate based on community enthusiasm + feasibility + fun factor. Returns `{ winnerId, reasoning }`
-2. **Code Generation** — Builds a complete single-file HTML app for the winning idea with Tailwind CDN, embedded `<style>` and `<script>`, dark theme, fully interactive
+**Build Winner** (2 sequential calls via streaming SSE):
+1. **Vote Analysis** — Reads ideas + votes from Firebase, picks the best candidate. Returns `{ winnerId, reasoning }`
+2. **Code Generation** — Streams HTML code in real-time. Saves to Firebase `apps/{slug}`
 
-### Handling GLM 5.1 Responses
+### Streaming
 
-GLM 5.1 returns both `content` and `reasoning_content` fields. Sometimes `content` is empty and only `reasoning_content` has data. The client handles both:
+The `/api/build` route uses Server-Sent Events (SSE) with `maxDuration = 300` (5 min timeout). The client receives events: `status`, `analysis`, `code`, `done`, `error`.
 
-```ts
-return msg?.content || msg?.reasoning_content || "";
+## Firebase Database Structure
+
 ```
-
-### Token Usage
-
-- `max_tokens: 16384` for all calls (GLM 5.1 uses tokens for reasoning)
-- `temperature: 0.3` for vote analysis (deterministic), `0.4` for code generation (slightly creative)
+currentBattle/
+  ideas: [ { id, title, description }, ... ]
+  createdAt: number
+  status: "active" | "building" | "finished"
+votes/
+  {ideaId}/
+    up: number
+    down: number
+apps/
+  {slug}/
+    title: string
+    reasoning: string
+    html: string
+    builtAt: number
+```
 
 ## Design System
 
@@ -121,16 +181,7 @@ Vercel-inspired light UI:
 - Inter font, 4px grid
 - `#C8CDD1` borders, `#797979` secondary text
 - 22px pill buttons, 6px card radius
-- LEADING badge on highest-voted idea
-
-## Architecture Decisions
-
-| Decision | Why |
-|---|---|
-| localStorage over server DB | No auth, no login — voting is anonymous and client-side. Persists across refreshes without backend |
-| Two GLM calls for build | Separates reasoning (pick winner) from generation (build app). Cleaner prompts, better results |
-| Coding Plan endpoint | General endpoint returns "insufficient balance" errors. Coding endpoint works with the GLM key |
-| Single HTML output | Generated apps are self-contained — copy-paste and run anywhere |
+- WINNING badge on highest-voted idea
 
 ## License
 

@@ -3,33 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { saveApp, slugify } from "@/lib/storage";
-
-interface Idea {
-  id: string;
-  title: string;
-  description: string;
-}
-
-interface Votes {
-  up: number;
-  down: number;
-}
-
-const STORAGE_KEYS = {
-  ideas: "vts_ideas",
-  votes: "vts_votes",
-} as const;
-
-function loadJSON<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
+import { slugify } from "@/lib/storage";
 
 function formatElapsed(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -52,9 +26,7 @@ export default function BuildPage() {
   const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
   const codeEndRef = useRef<HTMLDivElement>(null);
   const hasStarted = useRef(false);
-  const finalHtmlRef = useRef<string>("");
   const finalTitleRef = useRef<string>("");
-  const finalReasoningRef = useRef<string>("");
 
   useEffect(() => {
     setHydrated(true);
@@ -76,14 +48,6 @@ export default function BuildPage() {
     if (!buildDone) return;
 
     const slug = slugify(finalTitleRef.current || "untitled");
-    saveApp({
-      slug,
-      title: finalTitleRef.current || "Untitled App",
-      reasoning: finalReasoningRef.current || "",
-      html: finalHtmlRef.current,
-      builtAt: Date.now(),
-    });
-
     setRedirectCountdown(5);
     const timer = setInterval(() => {
       setRedirectCountdown((prev) => {
@@ -102,29 +66,11 @@ export default function BuildPage() {
     if (hasStarted.current) return;
     hasStarted.current = true;
 
-    const loadedIdeas = loadJSON<Idea[]>(STORAGE_KEYS.ideas, []);
-    const loadedVotes = loadJSON<Record<string, Votes>>(
-      STORAGE_KEYS.votes,
-      {}
-    );
-
-    if (loadedIdeas.length === 0) {
-      setError("No ideas found. Go back to the arena first.");
-      return;
-    }
-
     setStatusMessage("Analyzing votes...");
-
-    const ideasWithVotes = loadedIdeas.map((idea) => ({
-      ...idea,
-      ...(loadedVotes[idea.id] ?? { up: 0, down: 0 }),
-    }));
 
     try {
       const res = await fetch("/api/build", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ideasWithVotes }),
       });
 
       if (!res.ok) {
@@ -165,7 +111,6 @@ export default function BuildPage() {
                 setWinnerTitle(event.winner.title);
                 setBuildReasoning(event.reasoning);
                 finalTitleRef.current = event.winner.title;
-                finalReasoningRef.current = event.reasoning;
                 setStatusMessage(`Generating ${event.winner.title}...`);
                 break;
               case "code":
@@ -173,7 +118,6 @@ export default function BuildPage() {
                 setLiveCode(accumulatedCode);
                 break;
               case "done":
-                finalHtmlRef.current = event.html;
                 setBuildDone(true);
                 setStatusMessage("");
                 break;

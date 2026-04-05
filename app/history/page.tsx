@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { getAppHistory, type BuiltApp } from "@/lib/storage";
+import { getAllBuiltApps, type BuiltApp } from "@/lib/db";
 
 function getTimeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -17,14 +17,22 @@ function getTimeAgo(timestamp: number): string {
 
 export default function HistoryPage() {
   const [apps, setApps] = useState<BuiltApp[]>([]);
-  const [hydrated, setHydrated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setApps(getAppHistory());
-    setHydrated(true);
+    getAllBuiltApps().then((result) => {
+      setApps(result);
+      setLoading(false);
+    });
   }, []);
 
-  if (!hydrated) return null;
+  if (loading) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center" style={{ background: "#F9F9F9" }}>
+        <p style={{ color: "#797979" }}>Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh flex flex-col" style={{ background: "#F9F9F9" }}>

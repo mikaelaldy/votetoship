@@ -1,6 +1,7 @@
-import { NextRequest } from "next/server";
 import { callGLM, callGLMStream, extractJSON } from "@/lib/glm";
 import { buildVoteAnalysisPrompt, buildCodegenPrompt } from "@/lib/prompts";
+import { getCurrentIdeas, getVotes, saveBuiltApp, updateBattleStatus } from "@/lib/db";
+import { slugify } from "@/lib/storage";
 
 export const maxDuration = 300;
 
@@ -12,7 +13,7 @@ interface IdeaWithVotes {
   down: number;
 }
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   const encoder = new TextEncoder();
 
   const send = (data: Record<string, unknown>) =>
@@ -20,21 +21,29 @@ export async function POST(request: NextRequest) {
 
   let ideasWithVotes: IdeaWithVotes[];
   try {
-    const body = await request.json();
-    ideasWithVotes = body.ideasWithVotes;
-    if (!ideasWithVotes || ideasWithVotes.length === 0) {
+    const [ideas, votes] = await Promise.all([getCurrentIdeas(), getVotes()]);
+
+    if (!ideas || ideas.length === 0) {
       return new Response(
         JSON.stringify({
-          error: "No ideas provided. Generate and vote on ideas first.",
+          error: "No ideas found. Generate and vote on ideas first.",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
+
+    ideasWithVotes = ideas.map((idea) => ({
+      ...idea,
+      ...(votes[idea.id] ?? { up: 0, down: 0 }),
+    }));
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid request body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "Failed to read ideas from database" }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 
   const stream = new ReadableStream({
@@ -84,6 +93,8 @@ export async function POST(request: NextRequest) {
           })
         );
 
+        await updateBattleStatus("building");
+
         const codegenMessages = buildCodegenPrompt(
           winner.title,
           winner.description
@@ -102,6 +113,10 @@ export async function POST(request: NextRequest) {
           const match = fullHtml.match(/```\s*([\s\S]*?)```/);
           if (match) fullHtml = match[1].trim();
         }
+
+        const appSlug = slugify(winner.title);
+        await saveBuiltApp(appSlug, winner.title, analysis.reasoning, fullHtml);
+        await updateBattleStatus("finished");
 
         controller.enqueue(send({ type: "done", html: fullHtml }));
         controller.close();

@@ -3,21 +3,23 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getApp, type BuiltApp } from "@/lib/storage";
+import { getBuiltApp, type BuiltApp } from "@/lib/db";
 
 export default function AppPage() {
   const params = useParams();
   const slug = params.slug as string;
 
   const [app, setApp] = useState<BuiltApp | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (slug) {
-      setApp(getApp(slug));
-    }
-    setHydrated(true);
+    if (!slug) return;
+    setLoading(true);
+    getBuiltApp(slug).then((result) => {
+      setApp(result);
+      setLoading(false);
+    });
   }, [slug]);
 
   const handleCopy = useCallback(async () => {
@@ -40,7 +42,13 @@ export default function AppPage() {
     URL.revokeObjectURL(url);
   }, [app]);
 
-  if (!hydrated) return null;
+  if (loading) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center" style={{ background: "#F9F9F9" }}>
+        <p style={{ color: "#797979" }}>Loading...</p>
+      </div>
+    );
+  }
 
   if (!app) {
     return (
@@ -72,7 +80,7 @@ export default function AppPage() {
               App not found
             </h1>
             <p className="text-[14px] mb-[20px]" style={{ color: "#797979" }}>
-              This app may have been cleared from your browser history.
+              This app may have been cleared from the database.
             </p>
             <Link
               href="/arena"
