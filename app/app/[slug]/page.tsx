@@ -3,7 +3,25 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getBuiltApp, type BuiltApp } from "@/lib/db";
+
+interface BuiltApp {
+  slug: string;
+  title: string;
+  reasoning: string;
+  html: string;
+  builtAt: number;
+}
+
+function getTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 export default function AppPage() {
   const params = useParams();
@@ -15,11 +33,16 @@ export default function AppPage() {
 
   useEffect(() => {
     if (!slug) return;
-    setLoading(true);
-    getBuiltApp(slug).then((result) => {
-      setApp(result);
+    (async () => {
+      try {
+        const res = await fetch(`/api/apps/${slug}`);
+        if (res.ok) {
+          const data = await res.json();
+          setApp(data.app);
+        }
+      } catch {}
       setLoading(false);
-    });
+    })();
   }, [slug]);
 
   const handleCopy = useCallback(async () => {
@@ -42,13 +65,7 @@ export default function AppPage() {
     URL.revokeObjectURL(url);
   }, [app]);
 
-  if (loading) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center" style={{ background: "#F9F9F9" }}>
-        <p style={{ color: "#797979" }}>Loading...</p>
-      </div>
-    );
-  }
+  if (loading) return null;
 
   if (!app) {
     return (
@@ -80,7 +97,7 @@ export default function AppPage() {
               App not found
             </h1>
             <p className="text-[14px] mb-[20px]" style={{ color: "#797979" }}>
-              This app may have been cleared from the database.
+              This app may not exist or hasn&apos;t been built yet.
             </p>
             <Link
               href="/arena"
@@ -214,15 +231,4 @@ export default function AppPage() {
       </footer>
     </div>
   );
-}
-
-function getTimeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }

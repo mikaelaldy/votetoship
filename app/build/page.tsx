@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { slugify } from "@/lib/storage";
 
 function formatElapsed(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -26,7 +25,7 @@ export default function BuildPage() {
   const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
   const codeEndRef = useRef<HTMLDivElement>(null);
   const hasStarted = useRef(false);
-  const finalTitleRef = useRef<string>("");
+  const slugRef = useRef<string>("");
 
   useEffect(() => {
     setHydrated(true);
@@ -47,13 +46,12 @@ export default function BuildPage() {
   useEffect(() => {
     if (!buildDone) return;
 
-    const slug = slugify(finalTitleRef.current || "untitled");
     setRedirectCountdown(5);
     const timer = setInterval(() => {
       setRedirectCountdown((prev) => {
         if (prev === null || prev <= 1) {
           clearInterval(timer);
-          router.push(`/app/${slug}`);
+          router.push(`/app/${slugRef.current || "untitled"}`);
           return null;
         }
         return prev - 1;
@@ -69,9 +67,7 @@ export default function BuildPage() {
     setStatusMessage("Analyzing votes...");
 
     try {
-      const res = await fetch("/api/build", {
-        method: "POST",
-      });
+      const res = await fetch("/api/build", { method: "POST" });
 
       if (!res.ok) {
         let msg = "Build request failed";
@@ -110,7 +106,7 @@ export default function BuildPage() {
               case "analysis":
                 setWinnerTitle(event.winner.title);
                 setBuildReasoning(event.reasoning);
-                finalTitleRef.current = event.winner.title;
+                slugRef.current = event.slug || "";
                 setStatusMessage(`Generating ${event.winner.title}...`);
                 break;
               case "code":
@@ -118,6 +114,7 @@ export default function BuildPage() {
                 setLiveCode(accumulatedCode);
                 break;
               case "done":
+                slugRef.current = event.slug || slugRef.current;
                 setBuildDone(true);
                 setStatusMessage("");
                 break;
@@ -125,12 +122,7 @@ export default function BuildPage() {
                 throw new Error(event.message);
             }
           } catch (e) {
-            if (
-              e instanceof Error &&
-              e.message !== "Build request failed"
-            ) {
-              throw e;
-            }
+            if (e instanceof Error) throw e;
           }
         }
       }
