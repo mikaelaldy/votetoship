@@ -1,4 +1,4 @@
-﻿# VoteToShip
+# VoteToShip
 
 VoteToShip is a public web app where AI proposes product ideas, users vote by swiping (`X` or `Love`), and anyone can instantly generate a working output for any idea.
 Each build produces **two separate HTML deliverables**:
@@ -59,20 +59,20 @@ GLM 5.1 was chosen because this product needs both creative ideation and reliabl
 ## Architecture Diagram
 ```mermaid
 flowchart TD
-  U[User] --> A[/arena Swipe UI]
-  A -->|GET| IAPI[/api/ideas]
-  A -->|POST vote| VAPI[/api/vote]
+  U[User] --> A["/arena Swipe UI"]
+  A -->|GET| IAPI["/api/ideas"]
+  A -->|POST vote| VAPI["/api/vote"]
   A -->|GET poll| VAPI
-  A -->|Build ideaId| BUI[/build?ideaId=...]
-  BUI -->|SSE stream| BAPI[/api/build]
+  A -->|Build ideaId| BUI["/build?ideaId=..."]
+  BUI -->|SSE stream| BAPI["/api/build"]
   BAPI --> GLM[GLM 5.1 API]
   IAPI --> DB[(Supabase)]
   VAPI --> DB
   BAPI --> DB
-  DB --> HAPI[/api/history]
-  DB --> AAPP[/api/apps/[slug]]
-  AAPP --> VIEW[/app/[slug] Landing/MVP Toggle Viewer]
-  HAPI --> H[/history]
+  DB --> HAPI["/api/history"]
+  DB --> AAPP["/api/apps/[slug]"]
+  AAPP --> VIEW["/app/[slug] Landing/MVP Toggle Viewer"]
+  HAPI --> H["/history"]
 ```
 
 ## API Overview
