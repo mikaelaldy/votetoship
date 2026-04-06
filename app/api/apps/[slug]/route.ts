@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAppBySlug } from "@/lib/kv";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getBuildBySlug } from "@/lib/store";
 
 export async function GET(
   _request: NextRequest,
@@ -7,7 +7,7 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
-    const app = await getAppBySlug(slug);
+    const app = await getBuildBySlug(slug);
     if (!app) {
       return NextResponse.json({ error: "App not found" }, { status: 404 });
     }

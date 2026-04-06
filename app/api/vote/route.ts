@@ -1,38 +1,29 @@
-﻿import { NextRequest, NextResponse } from "next/server";
-import { callVote, getActiveRound, getIdeas } from "@/lib/kv";
-import { getCurrentRoundState } from "@/lib/rounds";
-import { publishRoundEvent } from "@/lib/realtime";
+﻿import { createHash } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { castVote, getActiveIdeas, getVoteMap } from "@/lib/store";
+
+function hash(input: string) {
+  return createHash("sha256").update(input).digest("hex");
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { ideaId, direction } = body as {
-      ideaId: string;
-      direction: "up" | "down";
+    const body = (await request.json()) as {
+      ideaId?: string;
+      direction?: "up" | "down";
+      voterToken?: string;
     };
 
-    if (!ideaId || !direction || !["up", "down"].includes(direction)) {
+    if (!body.ideaId || !body.direction || !["up", "down"].includes(body.direction)) {
       return NextResponse.json(
         { error: "ideaId and direction (up|down) are required" },
         { status: 400 }
       );
     }
 
-    const round = await getActiveRound();
-    if (!round || round.status !== "OPEN_VOTING") {
-      const state = await getCurrentRoundState();
-      return NextResponse.json(
-        {
-          error: "Voting is currently closed",
-          votes: state.votes,
-          round: state.round,
-        },
-        { status: 409 }
-      );
-    }
-
-    const ideaExists = (await getIdeas()).some((i) => i.id === ideaId);
-    if (!ideaExists) {
+    const ideas = await getActiveIdeas();
+    const exists = ideas.some((idea) => idea.id === body.ideaId);
+    if (!exists) {
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
@@ -41,20 +32,17 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-real-ip") ??
       "unknown";
 
-    const votes = await callVote(ideaId, direction, ip);
-    const vote = votes[ideaId] || { up: 0, down: 0 };
+    const voterToken = (body.voterToken || "anon").slice(0, 80);
+    const voterKey = hash(`${ip}:${voterToken}`);
 
-    await publishRoundEvent(round.id, "vote.updated", {
-      ideaId,
-      up: vote.up,
-      down: vote.down,
-      score: vote.up - vote.down,
-      votes,
-      roundId: round.id,
-      serverTime: Date.now(),
+    await castVote({
+      ideaId: body.ideaId,
+      direction: body.direction,
+      voterKey,
     });
 
-    return NextResponse.json({ votes, round });
+    const votes = await getVoteMap(ideas.map((i) => i.id));
+    return NextResponse.json({ votes });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -63,12 +51,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const state = await getCurrentRoundState();
-    return NextResponse.json({
-      votes: state.votes,
-      round: state.round,
-      serverTime: state.serverTime,
-    });
+    const ideas = await getActiveIdeas();
+    const votes = await getVoteMap(ideas.map((i) => i.id));
+    return NextResponse.json({ votes });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -1,8 +1,0 @@
-﻿{
-  "crons": [
-    {
-      "path": "/api/internal/round-tick",
-      "schedule": "* * * * *"
-    }
-  ]
-}

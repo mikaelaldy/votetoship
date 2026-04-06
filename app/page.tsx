@@ -2,127 +2,65 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "VoteToShip â€” Vote on web app ideas, GLM 5.1 builds the winner",
+  title: "VoteToShip - Swipe, Vote, Build",
   description:
-    "Community votes on web app ideas. The highest-voted idea gets automatically built live as an interactive web app by GLM 5.1.",
+    "AI recommends app ideas. Users swipe X or Love. Any idea can be built into landing + MVP and cached.",
 };
 
 export default function LandingPage() {
   return (
     <div className="min-h-dvh flex flex-col" style={{ background: "#F9F9F9" }}>
       <nav className="border-b" style={{ borderColor: "#C8CDD1" }}>
-        <div className="max-w-[1200px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
-          <span
-            className="font-bold text-[18px]"
-            style={{ color: "#1B1B1B" }}
-          >
+        <div className="max-w-[1100px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
+          <span className="font-bold text-[18px]" style={{ color: "#1B1B1B" }}>
             VoteToShip
           </span>
-          <Link
-            href="/arena"
-            className="text-[14px] font-medium"
-            style={{ color: "#000001" }}
-          >
-            Enter Arena â†’
+          <Link href="/arena" className="text-[14px] font-medium" style={{ color: "#000001" }}>
+            Enter Arena
           </Link>
         </div>
       </nav>
 
-      <main className="flex-1 flex flex-col items-center justify-center px-[24px] py-[92px]">
-        <div className="max-w-[720px] text-center">
-          <h1
-            className="text-[44px] font-extrabold leading-tight text-balance"
-            style={{ color: "#1B1B1B" }}
-          >
-            Vote on web app ideas.
-            <br />
-            The winner gets built live.
-          </h1>
-          <p
-            className="text-[24px] font-medium mt-[20px] mb-[40px] text-pretty leading-relaxed"
-            style={{ color: "#797979" }}
-          >
-            Community votes decide which idea to build. GLM 5.1 analyzes the
-            votes and ships a fully interactive web app in seconds.
-          </p>
+      <main className="flex-1 max-w-[1100px] mx-auto w-full px-[24px] py-[70px]">
+        <h1 className="text-[50px] font-extrabold leading-tight" style={{ color: "#1B1B1B" }}>
+          Swipe ideas.
+          <br />
+          Build any one.
+        </h1>
+        <p className="text-[22px] mt-[14px] max-w-[720px]" style={{ color: "#797979" }}>
+          GLM recommends ideas. Community swipes X or Love. Any idea can be built into two separate outputs: a landing page and an MVP app.
+        </p>
+
+        <div className="mt-[28px] flex items-center gap-[12px]">
           <Link
             href="/arena"
-            className="inline-block px-[40px] py-[14px] rounded-[22px] text-[16px] font-semibold"
+            className="px-[24px] py-[11px] rounded-[22px] text-[15px] font-semibold"
             style={{ background: "#000001", color: "#fff" }}
           >
-            Enter the Arena
+            Start Swiping
+          </Link>
+          <Link
+            href="/history"
+            className="px-[24px] py-[11px] rounded-[22px] text-[15px] font-semibold border"
+            style={{ borderColor: "#C8CDD1", color: "#1B1B1B" }}
+          >
+            View History
           </Link>
         </div>
 
-        <div className="max-w-[720px] mt-[92px] grid grid-cols-1 md:grid-cols-3 gap-[24px] w-full">
+        <div className="mt-[44px] grid grid-cols-1 md:grid-cols-3 gap-[14px]">
           {[
-            {
-              step: "01",
-              title: "Vote",
-              desc: "Browse fresh web app ideas. Upvote the ones you love, downvote the rest.",
-            },
-            {
-              step: "02",
-              title: "GLM Builds",
-              desc: "GLM 5.1 analyzes votes, picks the winner, and generates a complete web app.",
-            },
-            {
-              step: "03",
-              title: "Play & Ship",
-              desc: "Interact with the live app instantly. Copy the code and make it yours.",
-            },
-          ].map((item) => (
-            <div key={item.step}>
-              <span
-                className="text-[44px] font-extrabold leading-none"
-                style={{ color: "#C8CDD1" }}
-              >
-                {item.step}
-              </span>
-              <h3
-                className="text-[20px] font-semibold mt-[6px] mb-[6px]"
-                style={{ color: "#1B1B1B" }}
-              >
-                {item.title}
-              </h3>
-              <p
-                className="text-[14px] leading-relaxed"
-                style={{ color: "#797979" }}
-              >
-                {item.desc}
-              </p>
+            ["Swipe voting", "Desktop and mobile both use swipe-driven X or Love voting."],
+            ["Build any time", "Every idea has Build. Users can start build immediately."],
+            ["Cached outputs", "If already built, users join existing stream/result instead of rebuilding."],
+          ].map(([title, desc]) => (
+            <div key={title} className="rounded-[8px] border p-[16px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
+              <h3 className="text-[18px] font-semibold" style={{ color: "#1B1B1B" }}>{title}</h3>
+              <p className="text-[14px] mt-[6px]" style={{ color: "#797979" }}>{desc}</p>
             </div>
           ))}
         </div>
       </main>
-
-      <footer
-        className="border-t py-[24px]"
-        style={{ borderColor: "#C8CDD1" }}
-      >
-        <div className="max-w-[1200px] mx-auto px-[24px] text-center">
-          <p className="text-[13px]" style={{ color: "#797979" }}>
-            Built for the Build with GLM 5.1 Challenge Â· Powered by GLM 5.1 Â·{" "}
-            <a
-              href="https://mikacend.xyz"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "#1B1B1B" }}
-            >
-              mikacend
-            </a>
-            {" Â· "}
-            <Link href="/history" style={{ color: "#1B1B1B" }}>
-              History
-            </Link>
-            {" Â· "}
-            <Link href="/next" style={{ color: "#1B1B1B" }}>
-              What&apos;s Next
-            </Link>
-          </p>
-        </div>
-      </footer>
     </div>
   );
 }
-
