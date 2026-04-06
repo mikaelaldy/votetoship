@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
@@ -84,7 +84,7 @@ export default function AppPage() {
               className="text-[14px] font-medium"
               style={{ color: "#000001" }}
             >
-              Enter Arena →
+              Enter Arena â†’
             </Link>
           </div>
         </nav>
@@ -138,7 +138,7 @@ export default function AppPage() {
               className="text-[14px] font-medium"
               style={{ color: "#000001" }}
             >
-              Arena →
+              Arena â†’
             </Link>
           </div>
         </div>
@@ -213,7 +213,7 @@ export default function AppPage() {
       <footer className="border-t py-[20px]" style={{ borderColor: "#C8CDD1" }}>
         <div className="max-w-[1200px] mx-auto px-[24px] text-center">
           <p className="text-[13px]" style={{ color: "#797979" }}>
-            Built for the Build with GLM 5.1 Challenge · Powered by GLM 5.1 ·{" "}
+            Built for the Build with GLM 5.1 Challenge Â· Powered by GLM 5.1 Â·{" "}
             <a
               href="https://mikacend.xyz"
               target="_blank"
@@ -222,9 +222,9 @@ export default function AppPage() {
             >
               mikacend
             </a>
-            {" · "}
+            {" Â· "}
             <Link href="/next" style={{ color: "#1B1B1B" }}>
-              What's Next
+              What&apos;s Next
             </Link>
           </p>
         </div>
@@ -232,3 +232,4 @@ export default function AppPage() {
     </div>
   );
 }
+

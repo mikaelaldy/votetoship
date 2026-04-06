@@ -55,6 +55,16 @@ Create `.env.local`:
 
 ```env
 GLM_API_KEY=your_glm_api_key_here
+CRON_SECRET=your_internal_cron_secret
+NEXT_PUBLIC_PUSHER_KEY=your_pusher_key
+NEXT_PUBLIC_PUSHER_CLUSTER=ap1
+PUSHER_APP_ID=your_pusher_app_id
+PUSHER_KEY=your_pusher_key
+PUSHER_SECRET=your_pusher_secret
+PUSHER_CLUSTER=ap1
+# Optional round tuning
+ROUND_VOTING_MINUTES=10
+ROUND_SHOWCASE_MINUTES=2
 ```
 
 Get your key at [open.bigmodel.cn](https://open.bigmodel.cn).

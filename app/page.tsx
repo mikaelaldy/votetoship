@@ -1,8 +1,8 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "VoteToShip — Vote on web app ideas, GLM 5.1 builds the winner",
+  title: "VoteToShip â€” Vote on web app ideas, GLM 5.1 builds the winner",
   description:
     "Community votes on web app ideas. The highest-voted idea gets automatically built live as an interactive web app by GLM 5.1.",
 };
@@ -23,7 +23,7 @@ export default function LandingPage() {
             className="text-[14px] font-medium"
             style={{ color: "#000001" }}
           >
-            Enter Arena →
+            Enter Arena â†’
           </Link>
         </div>
       </nav>
@@ -102,7 +102,7 @@ export default function LandingPage() {
       >
         <div className="max-w-[1200px] mx-auto px-[24px] text-center">
           <p className="text-[13px]" style={{ color: "#797979" }}>
-            Built for the Build with GLM 5.1 Challenge · Powered by GLM 5.1 ·{" "}
+            Built for the Build with GLM 5.1 Challenge Â· Powered by GLM 5.1 Â·{" "}
             <a
               href="https://mikacend.xyz"
               target="_blank"
@@ -111,13 +111,13 @@ export default function LandingPage() {
             >
               mikacend
             </a>
-            {" · "}
+            {" Â· "}
             <Link href="/history" style={{ color: "#1B1B1B" }}>
               History
             </Link>
-            {" · "}
+            {" Â· "}
             <Link href="/next" style={{ color: "#1B1B1B" }}>
-              What's Next
+              What&apos;s Next
             </Link>
           </p>
         </div>
@@ -125,3 +125,4 @@ export default function LandingPage() {
     </div>
   );
 }
+

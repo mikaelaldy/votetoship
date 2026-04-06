@@ -1,10 +1,10 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "What's Next — VoteToShip Roadmap",
+  title: "What's Next â€” VoteToShip Roadmap",
   description:
-    "Planned features and roadmap for VoteToShip — the community-driven app builder powered by GLM 5.1.",
+    "Planned features and roadmap for VoteToShip â€” the community-driven app builder powered by GLM 5.1.",
 };
 
 const phases = [
@@ -24,24 +24,24 @@ const phases = [
     label: "Next",
     status: "planned" as const,
     items: [
-      "User-submitted ideas — suggest your own app for the arena",
-      "Battle history — gallery of all past winners",
-      "Email reminders — get notified when a new battle starts",
-      "Countdown timer — scheduled battles with visible countdown",
-      "Social sharing — one-click post the built app to X",
-      "Persisted leaderboard — track wins across sessions",
+      "User-submitted ideas â€” suggest your own app for the arena",
+      "Battle history â€” gallery of all past winners",
+      "Email reminders â€” get notified when a new battle starts",
+      "Countdown timer â€” scheduled battles with visible countdown",
+      "Social sharing â€” one-click post the built app to X",
+      "Persisted leaderboard â€” track wins across sessions",
     ],
   },
   {
     label: "Later",
     status: "exploring" as const,
     items: [
-      "Multi-player voting — real-time vote sync across users via WebSockets",
-      "GLM improves past winners — iterate on previously built apps",
-      "App marketplace — browse and fork all generated apps",
-      "Custom themes — choose dark/light for generated apps",
-      "Tournament mode — bracket-style elimination rounds",
-      "API access — programmatic access to idea generation and building",
+      "Multi-player voting â€” real-time vote sync across users via WebSockets",
+      "GLM improves past winners â€” iterate on previously built apps",
+      "App marketplace â€” browse and fork all generated apps",
+      "Custom themes â€” choose dark/light for generated apps",
+      "Tournament mode â€” bracket-style elimination rounds",
+      "API access â€” programmatic access to idea generation and building",
     ],
   },
 ];
@@ -69,7 +69,7 @@ export default function WhatsNextPage() {
             className="text-[14px] font-medium"
             style={{ color: "#000001" }}
           >
-            Enter Arena →
+            Enter Arena â†’
           </Link>
         </div>
       </nav>
@@ -79,13 +79,13 @@ export default function WhatsNextPage() {
           className="text-[44px] font-extrabold leading-tight mb-[8px]"
           style={{ color: "#1B1B1B" }}
         >
-          What's Next
+          What&apos;s Next
         </h1>
         <p
           className="text-[18px] mb-[48px]"
           style={{ color: "#797979" }}
         >
-          VoteToShip roadmap — where we are and where we're going.
+          VoteToShip roadmap â€” where we are and where we&apos;re going.
         </p>
 
         <div className="space-y-[40px]">
@@ -148,7 +148,7 @@ export default function WhatsNextPage() {
       <footer className="border-t py-[24px]" style={{ borderColor: "#C8CDD1" }}>
         <div className="max-w-[1200px] mx-auto px-[24px] text-center">
           <p className="text-[13px]" style={{ color: "#797979" }}>
-            Built for the Build with GLM 5.1 Challenge · Powered by GLM 5.1 ·{" "}
+            Built for the Build with GLM 5.1 Challenge Â· Powered by GLM 5.1 Â·{" "}
             <a
               href="https://mikacend.xyz"
               target="_blank"
@@ -157,7 +157,7 @@ export default function WhatsNextPage() {
             >
               mikacend
             </a>
-            {" · "}
+            {" Â· "}
             <Link href="/history" style={{ color: "#1B1B1B" }}>
               History
             </Link>
@@ -167,3 +167,4 @@ export default function WhatsNextPage() {
     </div>
   );
 }
+
