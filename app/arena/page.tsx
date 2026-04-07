@@ -18,6 +18,11 @@ interface VoteData {
   down: number;
 }
 
+interface VoteFeedback {
+  ideaTitle: string;
+  direction: "up" | "down";
+}
+
 const DRAG_LIMIT = 180;
 const SWIPE_THRESHOLD = 96;
 const SWIPE_EXIT_DISTANCE = 520;
@@ -80,11 +85,13 @@ function ArenaContent() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [voteFeedback, setVoteFeedback] = useState<VoteFeedback | null>(null);
   const pointerStartX = useRef<number | null>(null);
   const pointerStartY = useRef<number | null>(null);
   const activePointerId = useRef<number | null>(null);
   const votesRef = useRef<Record<string, VoteData>>({});
   const pollActiveRef = useRef(true);
+  const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const adminHeaders = useCallback((): Record<string, string> => {
     const token = getStoredAdminToken();
@@ -162,7 +169,7 @@ function ArenaContent() {
   const activeIdea = pendingIdeas[0] || null;
 
   const submitVote = useCallback(
-    async (ideaId: string, direction: "up" | "down") => {
+    async (ideaId: string, title: string, direction: "up" | "down") => {
       if (refilling) return;
       setSwipeExit(direction === "up" ? "right" : "left");
       await new Promise((resolve) => setTimeout(resolve, 180));
@@ -174,12 +181,23 @@ function ArenaContent() {
         body: JSON.stringify({ ideaId, direction, voterToken }),
       });
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        setNotice("Could not save your vote. Try again.");
+        setSwipeExit(null);
+        setDragX(0);
+        setIsDragging(false);
+        return;
+      }
 
       const data = await res.json();
       const freshVotes = data.votes || {};
       votesRef.current = freshVotes;
       setVotes(freshVotes);
+      if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+      setVoteFeedback({ ideaTitle: title, direction });
+      feedbackTimeoutRef.current = setTimeout(() => {
+        setVoteFeedback(null);
+      }, 1100);
       setVoted((prev) => {
         const next = new Set(prev);
         next.add(ideaId);
@@ -201,6 +219,12 @@ function ArenaContent() {
     setIsDragging(false);
     setSwipeExit(null);
   };
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+    };
+  }, []);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (refilling) return;
@@ -234,13 +258,13 @@ function ArenaContent() {
     }
 
     if (dragX >= SWIPE_THRESHOLD) {
-      await submitVote(activeIdea.id, "up");
+      await submitVote(activeIdea.id, activeIdea.title, "up");
       resetPointerState();
       return;
     }
 
     if (dragX <= -SWIPE_THRESHOLD) {
-      await submitVote(activeIdea.id, "down");
+      await submitVote(activeIdea.id, activeIdea.title, "down");
       resetPointerState();
       return;
     }
@@ -389,6 +413,23 @@ function ArenaContent() {
             </div>
           ) : null}
 
+          {voteFeedback ? (
+            <div
+              className={`arena-vote-feedback mt-4 ${
+                voteFeedback.direction === "up"
+                  ? "arena-vote-feedback-up"
+                  : "arena-vote-feedback-down"
+              }`}
+            >
+              <span className="text-xs font-semibold uppercase tracking-[0.2em]">
+                {voteFeedback.direction === "up" ? "Loved" : "Passed"}
+              </span>
+              <span className="text-sm text-[var(--color-text-secondary)] sm:text-base">
+                {voteFeedback.ideaTitle}
+              </span>
+            </div>
+          ) : null}
+
           <div className="mt-6 min-h-[360px]">
             {refilling ? (
               <div className="panel p-6">
@@ -413,6 +454,17 @@ function ArenaContent() {
                   >
                     X
                   </span>
+                  <span
+                    className="rounded-[23px] border px-4 py-2 text-xs font-semibold uppercase"
+                    style={{
+                      opacity: dragX > 0 ? swipeProgress : 0.2,
+                      borderColor: "#b7d7bf",
+                      background: "#f3fbf5",
+                      color: "#166534",
+                    }}
+                  >
+                    Love
+                  </span>
                 </div>
 
                 <div
@@ -431,6 +483,16 @@ function ArenaContent() {
                         : "transform 180ms ease-out, opacity 180ms ease-out",
                   }}
                 >
+                  {swipeExit ? (
+                    <div
+                      className={`arena-vote-stamp ${
+                        swipeExit === "right" ? "arena-vote-stamp-up" : "arena-vote-stamp-down"
+                      }`}
+                    >
+                      {swipeExit === "right" ? "Loved" : "Passed"}
+                    </div>
+                  ) : null}
+
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <h2 className="balance text-[28px] font-bold leading-tight text-[var(--color-text-primary)]">
                       {activeIdea.title}
@@ -457,13 +519,13 @@ function ArenaContent() {
 
                   <div className="mt-6 grid gap-3 sm:grid-cols-3">
                     <button
-                      onClick={() => void submitVote(activeIdea.id, "down")}
+                      onClick={() => void submitVote(activeIdea.id, activeIdea.title, "down")}
                       className="pill-button pill-button-secondary w-full"
                     >
                       X
                     </button>
                     <button
-                      onClick={() => void submitVote(activeIdea.id, "up")}
+                      onClick={() => void submitVote(activeIdea.id, activeIdea.title, "up")}
                       className="pill-button pill-button-secondary w-full"
                     >
                       Love
