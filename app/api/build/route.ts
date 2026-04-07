@@ -1,5 +1,5 @@
 ﻿import { NextRequest } from "next/server";
-import { callGLM, callGLMStream, extractJSON } from "@/lib/glm";
+import { callGLM, callGLMStreamTagged, extractJSON } from "@/lib/glm";
 import {
   appendBuildStream,
   completeBuild,
@@ -92,11 +92,11 @@ async function buildForIdea(params: {
       {
         role: "system",
         content:
-          "You provide short product-build rationale. Keep output concise and practical.",
+          "You write a short build plan in Markdown only. Use headings (##), bullet lists, and bold for emphasis. No code fences. Keep it scannable and practical.",
       },
       {
         role: "user",
-        content: `Idea:\nTitle: ${params.title}\nDescription: ${params.description}\n\nGive 2 short sentences explaining how to split this into:\n1) a landing page\n2) an MVP app. Keep it brief.`,
+        content: `Idea:\nTitle: ${params.title}\nDescription: ${params.description}\n\nProduce Markdown with:\n## Plan\n- **Landing page:** ...\n- **MVP app:** ...\nKeep each bullet to 1–2 sentences.`,
       },
     ],
     0.2
@@ -120,13 +120,18 @@ async function buildForIdea(params: {
     },
   ];
 
-  for await (const chunk of callGLMStream(codegenPrompt, 0.35, {
-    includeReasoning: false,
+  for await (const chunk of callGLMStreamTagged(codegenPrompt, 0.35, {
     timeoutMs: 120000,
     maxOutputChars: 240000,
   })) {
-    fullText += chunk;
-    params.controller.enqueue(params.send({ type: "code", content: chunk }));
+    if (chunk.kind === "reasoning") {
+      params.controller.enqueue(
+        params.send({ type: "thinking_delta", content: chunk.text })
+      );
+    } else {
+      fullText += chunk.text;
+      params.controller.enqueue(params.send({ type: "code", content: chunk.text }));
+    }
 
     const now = Date.now();
     if (now - lastPersistedAt > 1200) {
