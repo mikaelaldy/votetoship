@@ -14,9 +14,12 @@ import {
   updateBuildOutputs,
 } from "@/lib/store";
 
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 const STALE_BUILD_MS = 90_000;
+const ACTIVE_BUILD_HEARTBEAT_MS = 45_000;
+const PHASE_TIMEOUT_MS = 300_000;
+const activeBuilds = new Map<string, { lastSeenAt: number }>();
 
 function isAbortError(error: unknown): boolean {
   return (
@@ -38,11 +41,36 @@ function hasCompleteHtmlDocument(html: string) {
   );
 }
 
+function sanitizeResumedHtml(existingHtml: string, incomingChunk: string) {
+  if (!existingHtml || !incomingChunk) return incomingChunk;
+
+  const trimmedChunk = incomingChunk.trimStart();
+  if (
+    trimmedChunk.startsWith("<!DOCTYPE html>") ||
+    trimmedChunk.startsWith("<html") ||
+    trimmedChunk.startsWith("<head") ||
+    trimmedChunk.startsWith("<body")
+  ) {
+    return "";
+  }
+
+  const maxOverlap = Math.min(existingHtml.length, incomingChunk.length);
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    if (existingHtml.endsWith(incomingChunk.slice(0, size))) {
+      return incomingChunk.slice(size);
+    }
+  }
+
+  return incomingChunk;
+}
+
 async function streamHtmlDocument(params: {
   kind: "landing" | "app";
+  ideaId: string;
   title: string;
   description: string;
   buildId: string;
+  initialHtml?: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
   send: (data: Record<string, unknown>) => Uint8Array;
   abortSignal?: AbortSignal;
@@ -74,40 +102,55 @@ Requirements:
  - End the response with </body></html>
  - No markdown fences, no commentary, no JSON`;
 
+  const initialHtml = params.initialHtml || "";
   const attempts = [
     {
-      label:
-        params.kind === "landing"
-          ? "Generating landing page HTML first..."
-          : "Landing page done. Generating MVP app HTML...",
-      prompt: basePrompt,
       maxOutputChars: 140000,
-      timeoutMs: 90000,
+      timeoutMs: PHASE_TIMEOUT_MS,
     },
     {
-      label:
-        params.kind === "landing"
-          ? "Landing page ran long. Retrying with a tighter output..."
-          : "MVP app ran long. Retrying with a tighter output...",
-      prompt: `${basePrompt}
-
-Retry constraints:
-- Keep the document under 450 lines
-- Avoid external fonts, icon packs, and long style blocks
-- Prefer compact sections and concise markup
-- The final line must be </html>`,
       maxOutputChars: 100000,
-      timeoutMs: 90000,
+      timeoutMs: PHASE_TIMEOUT_MS,
     },
   ];
 
   let lastError: Error | null = null;
+  let resumeHtml = initialHtml;
 
   const SAVE_INTERVAL_MS = 3000;
 
   for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
     const attempt = attempts[attemptIndex];
-    const currentText = { value: "" };
+    const currentText = { value: resumeHtml };
+    const attemptPrompt = currentText.value
+      ? `${basePrompt}
+
+Continue this partially generated HTML document from exactly where it stops.
+
+Saved partial HTML:
+${currentText.value}
+
+Rules for continuation:
+- Continue from the saved partial output only
+- Do not restart the document
+- Do not repeat <!DOCTYPE html>, <html>, <head>, or already-generated markup
+- Finish the same document and close all remaining tags exactly once${
+          attemptIndex > 0
+            ? `
+- Keep the remaining output compact
+- Avoid long style blocks and extra sections
+- The final line must be </html>`
+            : ""
+        }`
+      : attemptIndex > 0
+        ? `${basePrompt}
+
+Retry constraints:
+- Keep the document under 450 lines
+- Avoid external fonts, icon packs, and long style blocks
+- Prefer compact sections and concise markup
+- The final line must be </html>`
+        : basePrompt;
     let lastSaveTime = 0;
     let savePending = false;
 
@@ -115,17 +158,19 @@ Retry constraints:
     params.controller.enqueue(
       params.send({
         type: "status",
-        message: attempt.label,
+        message: currentText.value
+          ? params.kind === "landing"
+            ? attemptIndex === 0
+              ? "Resuming saved landing page HTML..."
+              : "Landing page ran long. Continuing from saved progress..."
+            : attemptIndex === 0
+              ? "Resuming saved MVP app HTML..."
+              : "MVP app ran long. Continuing from saved progress..."
+          : params.kind === "landing"
+            ? "Generating landing page HTML first..."
+            : "Landing page done. Generating MVP app HTML...",
       })
     );
-
-    if (attemptIndex > 0) {
-      await updateBuildOutputs({
-        buildId: params.buildId,
-        landingHtml: params.kind === "landing" ? "" : undefined,
-        appHtml: params.kind === "app" ? "" : undefined,
-      });
-    }
 
     try {
       for await (const chunk of callGLMStream(
@@ -137,7 +182,7 @@ Retry constraints:
           },
           {
             role: "user",
-            content: attempt.prompt,
+            content: attemptPrompt,
           },
         ],
         0.1,
@@ -147,11 +192,14 @@ Retry constraints:
           signal: params.abortSignal,
         }
       )) {
-        currentText.value += chunk;
+        activeBuilds.set(params.ideaId, { lastSeenAt: Date.now() });
+        const sanitizedChunk = sanitizeResumedHtml(currentText.value, chunk);
+        if (!sanitizedChunk) continue;
+        currentText.value += sanitizedChunk;
         params.controller.enqueue(
           params.send({
             type: params.kind === "landing" ? "landing_chunk" : "app_chunk",
-            content: chunk,
+            content: sanitizedChunk,
           })
         );
 
@@ -195,6 +243,7 @@ Retry constraints:
 
       return currentText.value;
     } catch (error) {
+      resumeHtml = currentText.value;
       lastError = error instanceof Error ? error : new Error("HTML generation failed");
       if (attemptIndex === attempts.length - 1) {
         break;
@@ -220,31 +269,55 @@ async function buildForIdea(params: {
   title: string;
   description: string;
   buildId: string;
+  existingLandingHtml?: string;
+  existingAppHtml?: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
   send: (data: Record<string, unknown>) => Uint8Array;
   abortSignal?: AbortSignal;
 }) {
   const reasoning = buildReasoning(params.title, params.description);
+  const existingLandingHtml = params.existingLandingHtml || "";
+  const existingAppHtml = params.existingAppHtml || "";
 
-  const landingHtml = await streamHtmlDocument({
-    kind: "landing",
-    title: params.title,
-    description: params.description,
-    buildId: params.buildId,
-    controller: params.controller,
-    send: params.send,
-    abortSignal: params.abortSignal,
-  });
+  const landingHtml = hasCompleteHtmlDocument(existingLandingHtml)
+    ? existingLandingHtml
+    : await streamHtmlDocument({
+        kind: "landing",
+        ideaId: params.ideaId,
+        title: params.title,
+        description: params.description,
+        buildId: params.buildId,
+        initialHtml: existingLandingHtml,
+        controller: params.controller,
+        send: params.send,
+        abortSignal: params.abortSignal,
+      });
 
-  const appHtml = await streamHtmlDocument({
-    kind: "app",
-    title: params.title,
-    description: params.description,
-    buildId: params.buildId,
-    controller: params.controller,
-    send: params.send,
-    abortSignal: params.abortSignal,
-  });
+  if (hasCompleteHtmlDocument(existingLandingHtml)) {
+    params.controller.enqueue(params.send({ type: "phase", phase: "app" }));
+    params.controller.enqueue(
+      params.send({
+        type: "status",
+        message: existingAppHtml
+          ? "Resuming saved MVP app HTML..."
+          : "Landing page done. Generating MVP app HTML...",
+      })
+    );
+  }
+
+  const appHtml = hasCompleteHtmlDocument(existingAppHtml)
+    ? existingAppHtml
+    : await streamHtmlDocument({
+        kind: "app",
+        ideaId: params.ideaId,
+        title: params.title,
+        description: params.description,
+        buildId: params.buildId,
+        initialHtml: existingAppHtml,
+        controller: params.controller,
+        send: params.send,
+        abortSignal: params.abortSignal,
+      });
 
   await completeBuild({
     buildId: params.buildId,
@@ -272,10 +345,45 @@ async function followExistingBuild(params: {
   send: (data: Record<string, unknown>) => Uint8Array;
   abortSignal?: AbortSignal;
 }) {
-  let sentLanding = 0;
-  let sentApp = 0;
+  const initial = await getBuildByIdeaId(params.ideaId);
+  if (!initial) {
+    params.controller.enqueue(
+      params.send({ type: "error", message: "Build disappeared. Retry build." })
+    );
+    return;
+  }
+
+  let sentLanding = initial.landing_html.length;
+  let sentApp = initial.app_html.length;
   let lastPhase: "landing" | "app" | "done" | null = null;
   let attempts = 0;
+
+  params.controller.enqueue(
+    params.send({
+      type: "snapshot",
+      slug: initial.slug,
+      title: initial.title,
+      status: initial.status,
+      buildPhase:
+        initial.status === "completed"
+          ? "done"
+          : hasCompleteHtmlDocument(initial.landing_html)
+            ? "app"
+            : "landing",
+      landingHtml: initial.landing_html,
+      appHtml: initial.app_html,
+      statusMessage:
+        initial.status === "completed"
+          ? "Build complete"
+          : hasCompleteHtmlDocument(initial.landing_html)
+            ? initial.app_html
+              ? "Resuming saved MVP app HTML..."
+              : "Landing page done. Generating MVP app HTML..."
+            : initial.landing_html
+              ? "Resuming saved landing page HTML..."
+              : "Generating landing page HTML first...",
+    })
+  );
 
   while (attempts < 240) {
     if (params.abortSignal?.aborted) {
@@ -405,9 +513,12 @@ export async function GET(request: NextRequest) {
         }
 
         const existing = await getBuildByIdeaId(ideaId);
+        const activeBuild = activeBuilds.get(ideaId);
         const isStaleBuilding =
           existing?.status === "building" &&
           Date.now() - Date.parse(existing.updated_at) > STALE_BUILD_MS;
+        const hasFreshHeartbeat =
+          !!activeBuild && Date.now() - activeBuild.lastSeenAt < ACTIVE_BUILD_HEARTBEAT_MS;
 
         if (existing?.status === "completed" && !forceRebuild) {
           controller.enqueue(
@@ -425,7 +536,7 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        if (existing?.status === "building" && !isStaleBuilding && !forceRebuild) {
+        if (existing?.status === "building" && hasFreshHeartbeat && !forceRebuild) {
           controller.enqueue(send({ type: "status", message: "Joining live build..." }));
           await followExistingBuild({ ideaId, controller, send, abortSignal });
           controller.close();
@@ -433,7 +544,7 @@ export async function GET(request: NextRequest) {
         }
 
         if (existing) {
-          if (existing.status === "building") {
+          if (existing.status === "building" && (forceRebuild || isStaleBuilding)) {
             await failBuild(
               existing.id,
               isStaleBuilding
@@ -466,6 +577,41 @@ export async function GET(request: NextRequest) {
             controller.close();
             return;
           }
+
+          if (existing.status === "building") {
+            activeBuilds.set(ideaId, { lastSeenAt: Date.now() });
+            controller.enqueue(
+              send({
+                type: "snapshot",
+                slug: existing.slug,
+                title: existing.title,
+                status: existing.status,
+                buildPhase: hasCompleteHtmlDocument(existing.landing_html) ? "app" : "landing",
+                landingHtml: existing.landing_html,
+                appHtml: existing.app_html,
+                statusMessage: hasCompleteHtmlDocument(existing.landing_html)
+                  ? existing.app_html
+                    ? "Resuming saved MVP app HTML..."
+                    : "Landing page done. Generating MVP app HTML..."
+                  : existing.landing_html
+                    ? "Resuming saved landing page HTML..."
+                    : "Generating landing page HTML first...",
+              })
+            );
+            await buildForIdea({
+              ideaId,
+              title: idea.title,
+              description: idea.description,
+              buildId: existing.id,
+              existingLandingHtml: existing.landing_html,
+              existingAppHtml: existing.app_html,
+              controller,
+              send,
+              abortSignal,
+            });
+            controller.close();
+            return;
+          }
         }
 
         const created = await insertBuild({
@@ -475,6 +621,7 @@ export async function GET(request: NextRequest) {
         });
         if (!created) throw new Error("Could not initialize build record");
 
+        activeBuilds.set(ideaId, { lastSeenAt: Date.now() });
         controller.enqueue(send({ type: "status", message: "Build started" }));
 
         await buildForIdea({
@@ -492,18 +639,21 @@ export async function GET(request: NextRequest) {
         const aborted = isAbortError(error);
         const message = error instanceof Error ? error.message : "Unknown error";
         const existing = await getBuildByIdeaId(ideaId);
-        if (existing && existing.status === "building") {
+        if (existing && existing.status === "building" && !aborted) {
           await failBuild(
             existing.id,
             aborted ? "Stopped by user" : message,
             `${existing.landing_html || ""}\n\n${existing.app_html || ""}`
           );
         }
-        controller.enqueue(
-          send({ type: "error", message: aborted ? "Build stopped" : message })
-        );
+        if (!aborted) {
+          controller.enqueue(send({ type: "error", message }));
+        }
+        activeBuilds.delete(ideaId);
         controller.close();
+        return;
       }
+      activeBuilds.delete(ideaId);
     },
   });
 

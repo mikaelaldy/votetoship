@@ -1,4 +1,4 @@
-﻿import { getSupabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export interface Idea {
   id: string;

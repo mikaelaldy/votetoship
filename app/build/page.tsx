@@ -22,6 +22,8 @@ const jetbrains = JetBrains_Mono({
   weight: ["400", "600"],
 });
 
+const BUILD_CACHE_PREFIX = "vts_build_stream:";
+
 function formatElapsed(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -30,6 +32,38 @@ function formatElapsed(seconds: number) {
 
 type StreamTab = "landing" | "app";
 type BuildPhase = "boot" | "landing" | "app" | "done";
+
+function getBuildCacheKey(ideaId: string) {
+  return `${BUILD_CACHE_PREFIX}${ideaId}`;
+}
+
+function readBuildCache(ideaId: string) {
+  if (!ideaId || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(getBuildCacheKey(ideaId));
+    if (!raw) return null;
+    return JSON.parse(raw) as {
+      statusMessage?: string;
+      buildDone?: boolean;
+      slug?: string;
+      title?: string;
+      streamTab?: StreamTab;
+      previewMode?: "landing" | "app";
+      buildPhase?: BuildPhase;
+      phaseStatus?: "idle" | "streaming" | "retrying";
+      landingHtml?: string;
+      appHtml?: string;
+      elapsed?: number;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearBuildCache(ideaId: string) {
+  if (!ideaId || typeof window === "undefined") return;
+  window.localStorage.removeItem(getBuildCacheKey(ideaId));
+}
 
 function BuildContent() {
   const router = useRouter();
@@ -56,6 +90,56 @@ function BuildContent() {
   const [tabNotice, setTabNotice] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const codeContainerRef = useRef<HTMLDivElement>(null);
+  const resetOnNextStreamRef = useRef(forceFlag);
+
+  useEffect(() => {
+    if (!ideaId) return;
+    const cached = readBuildCache(ideaId);
+    if (!cached) return;
+
+    setStatusMessage(cached.statusMessage || "Reconnecting to saved build...");
+    setBuildDone(Boolean(cached.buildDone));
+    setSlug(cached.slug || "");
+    setTitle(cached.title || "");
+    setStreamTab(cached.streamTab || "landing");
+    setPreviewMode(cached.previewMode || "landing");
+    setBuildPhase(cached.buildPhase || "boot");
+    setPhaseStatus(cached.phaseStatus || "idle");
+    setLandingHtml(cached.landingHtml || "");
+    setAppHtml(cached.appHtml || "");
+    setElapsed(cached.elapsed || 0);
+  }, [ideaId]);
+
+  useEffect(() => {
+    if (!ideaId) return;
+    const payload = {
+      statusMessage,
+      buildDone,
+      slug,
+      title,
+      streamTab,
+      previewMode,
+      buildPhase,
+      phaseStatus,
+      landingHtml,
+      appHtml,
+      elapsed,
+    };
+    window.localStorage.setItem(getBuildCacheKey(ideaId), JSON.stringify(payload));
+  }, [
+    appHtml,
+    buildDone,
+    buildPhase,
+    elapsed,
+    ideaId,
+    landingHtml,
+    phaseStatus,
+    previewMode,
+    slug,
+    statusMessage,
+    streamTab,
+    title,
+  ]);
 
   useEffect(() => {
     const container = codeContainerRef.current;
@@ -126,15 +210,22 @@ function BuildContent() {
 
       setBuildDone(false);
       setError(null);
-      setStatusMessage("Initializing...");
-      setLandingHtml("");
-      setAppHtml("");
-      setElapsed(0);
-      setStreamTab("landing");
-      setPreviewMode("landing");
-      setBuildPhase("boot");
-      setPhaseStatus("idle");
       setTabNotice("");
+
+      if (resetOnNextStreamRef.current) {
+        resetOnNextStreamRef.current = false;
+        clearBuildCache(ideaId);
+        setStatusMessage("Initializing...");
+        setLandingHtml("");
+        setAppHtml("");
+        setElapsed(0);
+        setStreamTab("landing");
+        setPreviewMode("landing");
+        setBuildPhase("boot");
+        setPhaseStatus("idle");
+      } else {
+        setStatusMessage((prev) => prev || "Reconnecting to saved build...");
+      }
 
       const query = new URLSearchParams({
         ideaId,
@@ -183,6 +274,22 @@ function BuildContent() {
             ) {
               setPhaseStatus("streaming");
             }
+          }
+          if (payload.type === "snapshot") {
+            setSlug(payload.slug || "");
+            setTitle(payload.title || "Built app");
+            setStatusMessage(payload.statusMessage || "Reconnecting to saved build...");
+            setLandingHtml(payload.landingHtml || "");
+            setAppHtml(payload.appHtml || "");
+            setBuildPhase(payload.buildPhase || "boot");
+            setBuildDone(payload.status === "completed");
+            setPhaseStatus(
+              payload.status === "completed"
+                ? "idle"
+                : payload.landingHtml || payload.appHtml
+                  ? "streaming"
+                  : "idle"
+            );
           }
           if (payload.type === "phase") {
             setBuildPhase(payload.phase || "boot");
@@ -319,6 +426,7 @@ function BuildContent() {
               <button
                 onClick={() => {
                   setForceRebuild(false);
+                  resetOnNextStreamRef.current = false;
                   setAttempt((v) => v + 1);
                 }}
                 className="pill-button pill-button-primary"
@@ -328,6 +436,7 @@ function BuildContent() {
               <button
                 onClick={() => {
                   setForceRebuild(true);
+                  resetOnNextStreamRef.current = true;
                   setAttempt((v) => v + 1);
                 }}
                 className="pill-button pill-button-secondary"
@@ -449,6 +558,7 @@ function BuildContent() {
             <button
               onClick={() => {
                 setForceRebuild(false);
+                resetOnNextStreamRef.current = false;
                 setAttempt((v) => v + 1);
               }}
               className="pill-button pill-button-secondary"
@@ -458,6 +568,7 @@ function BuildContent() {
             <button
               onClick={() => {
                 setForceRebuild(true);
+                resetOnNextStreamRef.current = true;
                 setAttempt((v) => v + 1);
               }}
               className="pill-button pill-button-secondary"
