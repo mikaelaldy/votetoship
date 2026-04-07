@@ -29,32 +29,31 @@ const IdeaRow = memo(function IdeaRow({
   onBuild: (ideaId: string) => void;
 }) {
   return (
-    <div className="rounded-[8px] border p-[14px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
-      <div className="flex items-start gap-[10px]">
-        <span className="text-[20px] font-extrabold w-[24px] text-right" style={{ color: "#C8CDD1" }}>
+    <div className="panel p-5">
+      <div className="flex items-start gap-4">
+        <span className="w-8 shrink-0 text-right text-2xl font-extrabold tabular-nums text-[var(--color-border-default)]">
           {index + 1}
         </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-[10px]">
-            <h3 className="text-[15px] font-semibold truncate" style={{ color: "#1B1B1B" }}>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="truncate text-base font-semibold text-[var(--color-text-primary)] sm:text-lg">
               {idea.title}
             </h3>
-            <span className="text-[13px] font-semibold shrink-0" style={{ color: score >= 0 ? "#1B1B1B" : "#b91c1c" }}>
+            <span className="shrink-0 text-sm font-semibold tabular-nums text-[var(--color-text-primary)]">
               {score >= 0 ? "+" : ""}
               {score}
             </span>
           </div>
-          <p className="text-[13px] mt-[4px] line-clamp-2" style={{ color: "#797979" }}>
+          <p className="pretty mt-2 line-clamp-3 text-sm leading-6 text-[var(--color-text-secondary)]">
             {idea.description}
           </p>
-          <div className="mt-[8px] flex items-center justify-between">
-            <span className="text-[12px]" style={{ color: "#797979" }}>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm text-[var(--color-text-secondary)]">
               Love {v.up} · X {v.down}
             </span>
             <button
               onClick={() => onBuild(idea.id)}
-              className="text-[12px] underline"
-              style={{ color: "#1B1B1B", background: "none", border: "none" }}
+              className="pill-button pill-button-secondary"
             >
               Build now
             </button>
@@ -127,41 +126,57 @@ function LeaderboardContent() {
   if (loading) return null;
 
   return (
-    <div className="min-h-dvh" style={{ background: "#F9F9F9" }}>
-      <nav className="border-b" style={{ borderColor: "#C8CDD1" }}>
-        <div className="max-w-[1100px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
-          <Link href="/" className="font-bold text-[18px]" style={{ color: "#1B1B1B" }}>
+    <div className="app-shell">
+      <nav className="app-nav">
+        <div className="app-container flex flex-wrap items-center justify-between gap-4 py-4">
+          <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <Link href="/arena" className="text-[13px] underline" style={{ color: "#797979" }}>
+          <Link href="/arena" className="pill-button pill-button-secondary">
             Back to swipe voting
           </Link>
         </div>
       </nav>
 
-      <main className="max-w-[1100px] mx-auto px-[24px] py-[32px]">
-        <h1 className="text-[38px] font-extrabold" style={{ color: "#1B1B1B" }}>
-          Live leaderboard
-        </h1>
-        <p className="text-[16px] mt-[6px]" style={{ color: "#797979" }}>
-          Top ideas ranked by Love minus X.
-        </p>
+      <main className="app-container page-section">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <section>
+            <p className="eyebrow">Leaderboard</p>
+            <h1 className="balance mt-4 text-[40px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[44px]">
+              Live leaderboard
+            </h1>
+            <p className="pretty mt-3 max-w-2xl text-base leading-7 text-[var(--color-text-secondary)] sm:text-lg">
+              Top ideas ranked by Love minus X.
+            </p>
 
-        <div className="mt-[18px] space-y-[10px] max-w-[780px]">
-          {rankedIdeas.map((idea, index) => {
-            const v = votes[idea.id] || { up: 0, down: 0 };
-            const score = v.up - v.down;
-            return (
-              <IdeaRow
-                key={idea.id}
-                idea={idea}
-                index={index}
-                score={score}
-                v={v}
-                onBuild={handleBuild}
-              />
-            );
-          })}
+            <div className="mt-6 space-y-4">
+              {rankedIdeas.map((idea, index) => {
+                const v = votes[idea.id] || { up: 0, down: 0 };
+                const score = v.up - v.down;
+                return (
+                  <IdeaRow
+                    key={idea.id}
+                    idea={idea}
+                    index={index}
+                    score={score}
+                    v={v}
+                    onBuild={handleBuild}
+                  />
+                );
+              })}
+            </div>
+          </section>
+
+          <aside className="space-y-4">
+            <div className="panel p-5">
+              <p className="eyebrow">Read the board</p>
+              <ul className="mt-4 space-y-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                <li>Positive scores rise from Love outpacing X.</li>
+                <li>Every row can jump straight into build mode.</li>
+                <li>Use the arena when you want faster decisions than scanning a list.</li>
+              </ul>
+            </div>
+          </aside>
         </div>
       </main>
     </div>

@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -9,61 +9,82 @@ export const metadata: Metadata = {
 
 export default function LandingPage() {
   return (
-    <div className="min-h-dvh flex flex-col" style={{ background: "#F9F9F9" }}>
-      <nav className="border-b" style={{ borderColor: "#C8CDD1" }}>
-        <div className="max-w-[1100px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
-          <span className="font-bold text-[18px]" style={{ color: "#1B1B1B" }}>
+    <div className="app-shell flex flex-col">
+      <nav className="app-nav">
+        <div className="app-container flex flex-wrap items-center justify-between gap-4 py-4">
+          <span className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </span>
-          <Link href="/arena" className="text-[14px] font-medium" style={{ color: "#000001" }}>
+          <Link href="/arena" className="pill-button pill-button-secondary">
             Enter Arena
           </Link>
         </div>
       </nav>
 
-      <main className="flex-1 max-w-[1100px] mx-auto w-full px-[24px] py-[70px]">
-        <h1 className="text-[50px] font-extrabold leading-tight" style={{ color: "#1B1B1B" }}>
-          Swipe ideas.
-          <br />
-          Build any one.
-        </h1>
-        <p className="text-[22px] mt-[14px] max-w-[720px]" style={{ color: "#797979" }}>
-          GLM recommends ideas. Community swipes X or Love. Any idea can be built into two separate outputs: a landing page and an MVP app.
-        </p>
+      <main className="app-container page-section flex-1">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+          <section className="max-w-3xl">
+            <p className="eyebrow">Ship the ideas with signal</p>
+            <h1 className="balance mt-4 text-5xl font-extrabold leading-none tracking-tight text-[var(--color-text-primary)] sm:text-[56px]">
+              Swipe ideas.
+              <br />
+              Build any one.
+            </h1>
+            <p className="pretty mt-4 max-w-2xl text-lg font-medium leading-8 text-[var(--color-text-secondary)] sm:text-2xl sm:leading-9">
+              GLM recommends ideas. Community swipes X or Love. Any idea can be built into two separate outputs: a landing page and an MVP app.
+            </p>
 
-        <div className="mt-[28px] flex items-center gap-[12px]">
-          <Link
-            href="/arena"
-            className="px-[24px] py-[11px] rounded-[22px] text-[15px] font-semibold"
-            style={{ background: "#000001", color: "#fff" }}
-          >
-            Start Swiping
-          </Link>
-          <Link
-            href="/leaderboard"
-            className="px-[24px] py-[11px] rounded-[22px] text-[15px] font-semibold border"
-            style={{ borderColor: "#C8CDD1", color: "#1B1B1B" }}
-          >
-            Live Leaderboard
-          </Link>
-          <Link
-            href="/history"
-            className="px-[24px] py-[11px] rounded-[22px] text-[15px] font-semibold border"
-            style={{ borderColor: "#C8CDD1", color: "#1B1B1B" }}
-          >
-            View History
-          </Link>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link href="/arena" className="pill-button pill-button-primary">
+                Start Swiping
+              </Link>
+              <Link href="/leaderboard" className="pill-button pill-button-secondary">
+                Live Leaderboard
+              </Link>
+              <Link href="/history" className="pill-button pill-button-secondary">
+                View History
+              </Link>
+            </div>
+          </section>
+
+          <aside className="panel p-6">
+            <p className="eyebrow">How it works</p>
+            <div className="mt-4 space-y-4">
+              {[
+                ["Swipe voting", "Desktop and mobile both use swipe-driven X or Love voting."],
+                ["Build any time", "Every idea has Build. Users can start build immediately."],
+                ["Cached outputs", "If already built, users join existing stream/result instead of rebuilding."],
+              ].map(([title, desc], index) => (
+                <div
+                  key={title}
+                  className="rounded-[23px] border border-[var(--color-border-default)] bg-[var(--color-surface-base)] p-4"
+                >
+                  <p className="text-xs font-semibold text-[var(--color-text-tertiary)]">
+                    0{index + 1}
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold text-[var(--color-text-primary)]">
+                    {title}
+                  </h3>
+                  <p className="pretty mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">
+                    {desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </aside>
         </div>
 
-        <div className="mt-[44px] grid grid-cols-1 md:grid-cols-3 gap-[14px]">
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
           {[
-            ["Swipe voting", "Desktop and mobile both use swipe-driven X or Love voting."],
-            ["Build any time", "Every idea has Build. Users can start build immediately."],
-            ["Cached outputs", "If already built, users join existing stream/result instead of rebuilding."],
+            ["Fresh battle", "A clean batch of ideas keeps the arena moving instead of stalling on dead cards."],
+            ["Live rank", "Votes update in real time so the leaderboard stays useful while the room is swiping."],
+            ["Build archive", "Finished builds stay browsable, downloadable, and reusable without rerunning the model."],
           ].map(([title, desc]) => (
-            <div key={title} className="rounded-[8px] border p-[16px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
-              <h3 className="text-[18px] font-semibold" style={{ color: "#1B1B1B" }}>{title}</h3>
-              <p className="text-[14px] mt-[6px]" style={{ color: "#797979" }}>{desc}</p>
+            <div key={title} className="panel p-5">
+              <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">{title}</h3>
+              <p className="pretty mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">
+                {desc}
+              </p>
             </div>
           ))}
         </div>

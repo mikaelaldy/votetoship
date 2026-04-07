@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -55,47 +55,43 @@ export default function HistoryPage() {
   if (loading) return null;
 
   return (
-    <div className="min-h-dvh" style={{ background: "#F9F9F9" }}>
-      <nav className="border-b" style={{ borderColor: "#C8CDD1" }}>
-        <div className="max-w-[1000px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
-          <Link href="/" className="font-bold text-[18px]" style={{ color: "#1B1B1B" }}>
+    <div className="app-shell">
+      <nav className="app-nav">
+        <div className="app-container flex flex-wrap items-center justify-between gap-4 py-4">
+          <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <Link href="/arena" className="text-[14px]" style={{ color: "#1B1B1B" }}>
+          <Link href="/arena" className="pill-button pill-button-secondary">
             Arena
           </Link>
         </div>
       </nav>
 
-      <main className="max-w-[1000px] mx-auto px-[24px] py-[34px]">
-        <h1 className="text-[40px] font-extrabold" style={{ color: "#1B1B1B" }}>
+      <main className="app-container page-section">
+        <p className="eyebrow">Build archive</p>
+        <h1 className="balance mt-4 text-[40px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[44px]">
           Builds
         </h1>
-        <p className="text-[16px] mt-[4px]" style={{ color: "#797979" }}>
+        <p className="pretty mt-3 max-w-2xl text-base leading-7 text-[var(--color-text-secondary)] sm:text-lg">
           See what is generating now, what failed, and finished apps you can open.
         </p>
 
         {inProgress.length > 0 ? (
-          <section className="mt-[28px]">
-            <h2 className="text-[18px] font-bold" style={{ color: "#1B1B1B" }}>
-              In progress
-            </h2>
-            <div className="mt-[12px] grid grid-cols-1 md:grid-cols-2 gap-[12px]">
+          <section className="mt-8">
+            <h2 className="text-xl font-bold text-[var(--color-text-primary)]">In progress</h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
               {inProgress.map((b) => (
                 <Link
                   key={b.id}
                   href={`/build?ideaId=${encodeURIComponent(b.idea_id)}`}
-                  className="rounded-[8px] border p-[16px] block"
-                  style={{ borderColor: "#ca8a04", background: "#fffbeb" }}
+                  className="panel block border-amber-300 bg-amber-50 p-5"
                 >
-                  <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "#a16207" }}>
-                    Generating
-                  </p>
-                  <h3 className="text-[18px] font-semibold mt-[4px]" style={{ color: "#1B1B1B" }}>
+                  <p className="eyebrow text-amber-700">Generating</p>
+                  <h3 className="mt-2 text-lg font-semibold text-[var(--color-text-primary)]">
                     {b.title}
                   </h3>
-                  <p className="text-[12px] mt-[8px]" style={{ color: "#797979" }}>
-                    Updated {timeAgo(b.updated_at)} · open to watch the stream
+                  <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                    Updated {timeAgo(b.updated_at)}. Open to watch the stream.
                   </p>
                 </Link>
               ))}
@@ -104,27 +100,20 @@ export default function HistoryPage() {
         ) : null}
 
         {failed.length > 0 ? (
-          <section className="mt-[28px]">
-            <h2 className="text-[18px] font-bold" style={{ color: "#1B1B1B" }}>
-              Failed
-            </h2>
-            <div className="mt-[12px] grid grid-cols-1 md:grid-cols-2 gap-[12px]">
+          <section className="mt-8">
+            <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Failed</h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
               {failed.map((b) => (
-                <div
-                  key={b.id}
-                  className="rounded-[8px] border p-[16px]"
-                  style={{ borderColor: "#fecaca", background: "#fff" }}
-                >
-                  <h3 className="text-[18px] font-semibold" style={{ color: "#1B1B1B" }}>
+                <div key={b.id} className="panel border-red-200 p-5">
+                  <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">
                     {b.title}
                   </h3>
-                  <p className="text-[13px] mt-[6px]" style={{ color: "#b91c1c" }}>
+                  <p className="mt-3 text-sm leading-6 text-red-700">
                     {b.error_message || "Build failed"}
                   </p>
                   <Link
                     href={`/build?ideaId=${encodeURIComponent(b.idea_id)}&forceRebuild=1`}
-                    className="inline-block mt-[10px] text-[13px] underline"
-                    style={{ color: "#1B1B1B" }}
+                    className="pill-button pill-button-secondary mt-4"
                   >
                     Retry build
                   </Link>
@@ -134,30 +123,23 @@ export default function HistoryPage() {
           </section>
         ) : null}
 
-        <section className="mt-[28px]">
-          <h2 className="text-[18px] font-bold" style={{ color: "#1B1B1B" }}>
-            Finished
-          </h2>
+        <section className="mt-8">
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Finished</h2>
           {completed.length === 0 ? (
-            <div className="mt-[12px] rounded-[8px] border p-[20px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
-              <p style={{ color: "#797979" }}>No completed builds yet.</p>
+            <div className="panel mt-4 p-6">
+              <p className="text-[var(--color-text-secondary)]">No completed builds yet.</p>
             </div>
           ) : (
-            <div className="mt-[12px] grid grid-cols-1 md:grid-cols-2 gap-[12px]">
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
               {completed.map((app) => (
-                <Link
-                  key={app.id}
-                  href={`/app/${app.slug}`}
-                  className="rounded-[8px] border p-[16px] block"
-                  style={{ borderColor: "#C8CDD1", background: "#fff" }}
-                >
-                  <h3 className="text-[18px] font-semibold" style={{ color: "#1B1B1B" }}>
+                <Link key={app.id} href={`/app/${app.slug}`} className="panel block p-5">
+                  <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">
                     {app.title}
                   </h3>
-                  <p className="text-[13px] mt-[6px] line-clamp-2" style={{ color: "#797979" }}>
+                  <p className="pretty mt-3 line-clamp-3 text-sm leading-6 text-[var(--color-text-secondary)]">
                     {app.reasoning}
                   </p>
-                  <p className="text-[12px] mt-[8px]" style={{ color: "#929292" }}>
+                  <p className="mt-4 text-sm tabular-nums text-[var(--color-text-tertiary)]">
                     {app.completed_at ? timeAgo(app.completed_at) : ""}
                   </p>
                 </Link>

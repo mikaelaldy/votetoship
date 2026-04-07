@@ -11,7 +11,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "VoteToShip",
   description:
-    "Vote on web app ideas — the winner gets built live by GLM 5.1",
+    "Vote on web app ideas - the winner gets built live by GLM 5.1",
 };
 
 export default function RootLayout({
@@ -20,10 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${inter.variable} h-full antialiased`}
-    >
+    <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-sans">
         {children}
         <Analytics />

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
@@ -56,6 +56,7 @@ export default function AppPage() {
     if (!app) return "";
     return mode === "landing" ? app.landing_html : app.app_html;
   }, [app, mode]);
+
   const hasRenderableHtml = useMemo(() => activeHtml.trim().length > 0, [activeHtml]);
 
   const handleCopy = useCallback(async () => {
@@ -82,10 +83,10 @@ export default function AppPage() {
 
   if (!app) {
     return (
-      <div className="min-h-dvh flex items-center justify-center" style={{ background: "#F9F9F9" }}>
-        <div className="text-center">
-          <h1 className="text-[24px] font-bold" style={{ color: "#1B1B1B" }}>App not found</h1>
-          <Link href="/arena" className="underline text-[14px]" style={{ color: "#797979" }}>
+      <div className="app-shell flex items-center justify-center px-4">
+        <div className="panel w-full max-w-md p-8 text-center">
+          <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">App not found</h1>
+          <Link href="/arena" className="pill-button pill-button-secondary mt-4">
             Back to arena
           </Link>
         </div>
@@ -94,77 +95,79 @@ export default function AppPage() {
   }
 
   return (
-    <div className="min-h-dvh" style={{ background: "#F9F9F9" }}>
-      <nav className="border-b" style={{ borderColor: "#C8CDD1" }}>
-        <div className="max-w-[1100px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
-          <Link href="/" className="font-bold text-[18px]" style={{ color: "#1B1B1B" }}>
+    <div className="app-shell">
+      <nav className="app-nav">
+        <div className="app-container flex flex-wrap items-center justify-between gap-4 py-4">
+          <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <div className="flex items-center gap-[14px]">
-            <Link href="/history" className="text-[14px]" style={{ color: "#797979" }}>History</Link>
-            <Link href="/arena" className="text-[14px]" style={{ color: "#1B1B1B" }}>Arena</Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/history" className="pill-button pill-button-secondary">
+              History
+            </Link>
+            <Link href="/arena" className="pill-button pill-button-secondary">
+              Arena
+            </Link>
           </div>
         </div>
       </nav>
 
-      <main className="max-w-[1100px] mx-auto px-[24px] py-[28px]">
-        <h1 className="text-[32px] font-extrabold" style={{ color: "#1B1B1B" }}>{app.title}</h1>
-        <p className="text-[14px] mt-[6px]" style={{ color: "#797979" }}>{app.reasoning}</p>
-        <p className="text-[12px] mt-[4px]" style={{ color: "#929292" }}>Built {timeAgo(app.completed_at)}</p>
+      <main className="app-container page-section">
+        <p className="eyebrow">Viewer</p>
+        <h1 className="balance mt-4 text-[36px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[40px]">
+          {app.title}
+        </h1>
+        <p className="pretty mt-3 max-w-3xl text-base leading-7 text-[var(--color-text-secondary)]">
+          {app.reasoning}
+        </p>
+        <p className="mt-3 text-sm tabular-nums text-[var(--color-text-tertiary)]">
+          Built {timeAgo(app.completed_at)}
+        </p>
 
-        <div className="mt-[14px] flex items-center gap-[10px]">
+        <div className="mt-6 flex flex-wrap gap-3">
           <button
             onClick={() => setMode("landing")}
-            className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
-            style={{ background: mode === "landing" ? "#000001" : "#fff", color: mode === "landing" ? "#fff" : "#1B1B1B", border: "1px solid #C8CDD1" }}
+            className={mode === "landing" ? "pill-button pill-button-primary" : "pill-button pill-button-secondary"}
           >
             Landing Page
           </button>
           <button
             onClick={() => setMode("app")}
-            className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
-            style={{ background: mode === "app" ? "#000001" : "#fff", color: mode === "app" ? "#fff" : "#1B1B1B", border: "1px solid #C8CDD1" }}
+            className={mode === "app" ? "pill-button pill-button-primary" : "pill-button pill-button-secondary"}
           >
             MVP App
           </button>
-          <button
-            onClick={handleDownload}
-            className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
-            style={{ background: "#000001", color: "#fff" }}
-          >
+          <button onClick={handleDownload} className="pill-button pill-button-secondary">
             Download HTML
           </button>
           <button
             onClick={handleCopy}
-            className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold border"
-            style={{ borderColor: "#C8CDD1", background: copied ? "#000001" : "#fff", color: copied ? "#fff" : "#1B1B1B" }}
+            className={copied ? "pill-button pill-button-primary" : "pill-button pill-button-secondary"}
           >
             {copied ? "Copied" : "Copy HTML"}
           </button>
         </div>
 
-        <div className="mt-[14px] rounded-[10px] border overflow-hidden" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
+        <div className="panel mt-6 overflow-hidden">
           {hasRenderableHtml ? (
             <iframe
               srcDoc={activeHtml}
               sandbox="allow-scripts"
-              className="w-full border-none"
-              style={{ height: "680px" }}
+              className="h-[60dvh] min-h-[480px] w-full border-none md:h-[70dvh]"
               title={`${app.title}-${mode}`}
             />
           ) : (
-            <div className="h-[680px] flex items-center justify-center p-[20px]">
-              <div className="text-center">
-                <p className="text-[15px] font-semibold" style={{ color: "#1B1B1B" }}>
+            <div className="flex min-h-[480px] items-center justify-center p-6">
+              <div className="max-w-md text-center">
+                <p className="text-base font-semibold text-[var(--color-text-primary)]">
                   This output is empty.
                 </p>
-                <p className="text-[13px] mt-[6px]" style={{ color: "#797979" }}>
+                <p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">
                   The build may have failed before HTML was saved.
                 </p>
                 <Link
                   href={`/build?ideaId=${encodeURIComponent(slug)}&forceRebuild=1`}
-                  className="inline-block mt-[12px] px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
-                  style={{ background: "#000001", color: "#fff" }}
+                  className="pill-button pill-button-primary mt-4"
                 >
                   Rebuild this idea
                 </Link>

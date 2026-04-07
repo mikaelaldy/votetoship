@@ -347,75 +347,66 @@ function BuildContent() {
       : donePayload?.appHtml ?? "";
 
   return (
-    <div className="min-h-dvh" style={{ background: "#F9F9F9" }}>
-      <nav className="border-b" style={{ borderColor: "#C8CDD1" }}>
-        <div className="max-w-[1100px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
-          <Link href="/" className="font-bold text-[18px]" style={{ color: "#1B1B1B" }}>
+    <div className="app-shell">
+      <nav className="app-nav">
+        <div className="app-container flex flex-wrap items-center justify-between gap-4 py-4">
+          <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <Link href="/arena" className="text-[14px]" style={{ color: "#797979" }}>
+          <Link href="/arena" className="pill-button pill-button-secondary">
             Back to arena
           </Link>
         </div>
       </nav>
 
-      <main className="max-w-[1100px] mx-auto px-[24px] py-[32px]">
-        <div className="flex items-start justify-between gap-[16px]">
-          <div>
-            <h1 className="text-[32px] font-extrabold" style={{ color: "#1B1B1B" }}>
+      <main className="app-container page-section">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="eyebrow">Build stream</p>
+            <h1 className="balance mt-4 text-[32px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[36px]">
               {title || "Building idea"}
             </h1>
-            <p className="text-[14px] mt-[6px]" style={{ color: "#797979" }}>
+            <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">
               {statusMessage}
             </p>
           </div>
-          <span className="text-[22px] font-mono font-bold" style={{ color: "#797979" }}>
+          <span className="rounded-[23px] border border-[var(--color-border-default)] px-4 py-3 text-xl font-mono font-bold tabular-nums text-[var(--color-text-secondary)]">
             {elapsedLabel}
           </span>
         </div>
 
         {planMarkdown ? (
-          <section
-            className="mt-[20px] rounded-[10px] border p-[18px] max-w-[800px]"
-            style={{ borderColor: "#C8CDD1", background: "#fff" }}
-          >
-            <h2 className="text-[13px] font-semibold uppercase tracking-wide mb-[10px]" style={{ color: "#797979" }}>
+          <section className="panel mt-5 max-w-[800px] p-[18px]">
+            <h2 className="mb-[10px] text-[13px] font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
               Plan
             </h2>
-            <div className="max-w-none text-[14px] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:mt-2 [&_strong]:font-semibold" style={{ color: "#1B1B1B" }}>
+            <div className="max-w-none text-[14px] leading-relaxed text-[var(--color-text-primary)] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:mt-2 [&_h2]:text-[16px] [&_h2]:font-bold [&_strong]:font-semibold">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{planMarkdown}</ReactMarkdown>
             </div>
           </section>
         ) : null}
 
         {codegenThinking ? (
-          <section
-            className="mt-[14px] rounded-[10px] border p-[18px] max-w-[800px]"
-            style={{ borderColor: "#C8CDD1", background: "#fff" }}
-          >
-            <h2 className="text-[13px] font-semibold uppercase tracking-wide mb-[10px]" style={{ color: "#797979" }}>
+          <section className="panel mt-[14px] max-w-[800px] p-[18px]">
+            <h2 className="mb-[10px] text-[13px] font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
               Model thinking (during codegen)
             </h2>
-            <div className="max-w-none text-[14px] whitespace-pre-wrap leading-relaxed" style={{ color: "#374151" }}>
+            <div className="max-w-none whitespace-pre-wrap text-[14px] leading-relaxed text-slate-700">
               {codegenThinking}
             </div>
           </section>
         ) : null}
 
         {error && (
-          <div
-            className="mt-[16px] rounded-[8px] border p-[14px]"
-            style={{ borderColor: "#b91c1c", background: "#fff" }}
-          >
-            <p style={{ color: "#b91c1c" }}>{error}</p>
-            <div className="mt-[10px] flex items-center gap-[10px]">
+          <div className="panel mt-4 border-red-700 p-[14px]">
+            <p className="text-red-700">{error}</p>
+            <div className="mt-[10px] flex flex-wrap items-center gap-[10px]">
               <button
                 onClick={() => {
                   setForceRebuild(false);
                   setAttempt((v) => v + 1);
                 }}
-                className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
-                style={{ background: "#000001", color: "#fff" }}
+                className="pill-button pill-button-primary"
               >
                 Retry build
               </button>
@@ -424,8 +415,7 @@ function BuildContent() {
                   setForceRebuild(true);
                   setAttempt((v) => v + 1);
                 }}
-                className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold border"
-                style={{ borderColor: "#C8CDD1", background: "#fff", color: "#1B1B1B" }}
+                className="pill-button pill-button-secondary"
               >
                 Force rebuild
               </button>
@@ -543,14 +533,13 @@ function BuildContent() {
         </div>
 
         {!buildDone && !error && (
-          <div className="mt-[12px] flex items-center gap-[10px]">
+          <div className="mt-[12px] flex flex-wrap items-center gap-[10px]">
             <button
               onClick={() => {
                 setForceRebuild(false);
                 setAttempt((v) => v + 1);
               }}
-              className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold border"
-              style={{ borderColor: "#C8CDD1", background: "#fff", color: "#1B1B1B" }}
+              className="pill-button pill-button-secondary"
             >
               Retry
             </button>
@@ -559,8 +548,7 @@ function BuildContent() {
                 setForceRebuild(true);
                 setAttempt((v) => v + 1);
               }}
-              className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold border"
-              style={{ borderColor: "#C8CDD1", background: "#fff", color: "#1B1B1B" }}
+              className="pill-button pill-button-secondary"
             >
               Force rebuild
             </button>
@@ -569,46 +557,35 @@ function BuildContent() {
 
         {buildDone && donePayload && (donePayload.landingHtml || donePayload.appHtml) && (
           <section className="mt-[24px]">
-            <h2 className="text-[18px] font-bold mb-[10px]" style={{ color: "#1B1B1B" }}>
+            <h2 className="mb-[10px] text-[18px] font-bold text-[var(--color-text-primary)]">
               Preview
             </h2>
             <div className="flex flex-wrap gap-[8px] mb-[10px]">
               <button
                 type="button"
                 onClick={() => setPreviewMode("landing")}
-                className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
-                style={{
-                  background: previewMode === "landing" ? "#000001" : "#fff",
-                  color: previewMode === "landing" ? "#fff" : "#1B1B1B",
-                  border: "1px solid #C8CDD1",
-                }}
+                className={previewMode === "landing" ? "pill-button pill-button-primary" : "pill-button pill-button-secondary"}
               >
                 Landing
               </button>
               <button
                 type="button"
                 onClick={() => setPreviewMode("app")}
-                className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
-                style={{
-                  background: previewMode === "app" ? "#000001" : "#fff",
-                  color: previewMode === "app" ? "#fff" : "#1B1B1B",
-                  border: "1px solid #C8CDD1",
-                }}
+                className={previewMode === "app" ? "pill-button pill-button-primary" : "pill-button pill-button-secondary"}
               >
                 MVP app
               </button>
             </div>
-            <div className="rounded-[10px] border overflow-hidden" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
+            <div className="panel overflow-hidden">
               {previewHtml ? (
                 <iframe
                   srcDoc={previewHtml}
                   sandbox="allow-scripts"
-                  className="w-full border-none"
-                  style={{ height: "560px" }}
+                  className="h-[56dvh] min-h-[420px] w-full border-none md:h-[560px]"
                   title="build-preview"
                 />
               ) : (
-                <p className="p-[16px] text-[14px]" style={{ color: "#797979" }}>
+                <p className="p-[16px] text-[14px] text-[var(--color-text-secondary)]">
                   No HTML for this preview mode.
                 </p>
               )}
@@ -617,18 +594,16 @@ function BuildContent() {
         )}
 
         {buildDone && (
-          <div className="mt-[16px] flex items-center gap-[12px]">
+          <div className="mt-[16px] flex flex-wrap items-center gap-[12px]">
             <button
               onClick={() => router.push(`/app/${slug || ideaId}`)}
-              className="px-[18px] py-[10px] rounded-[20px] text-[14px] font-semibold"
-              style={{ background: "#000001", color: "#fff" }}
+              className="pill-button pill-button-primary"
             >
               Open landing / MVP viewer
             </button>
             <button
               onClick={() => router.push("/arena")}
-              className="px-[18px] py-[10px] rounded-[20px] text-[14px] font-semibold border"
-              style={{ borderColor: "#C8CDD1", background: "#fff", color: "#1B1B1B" }}
+              className="pill-button pill-button-secondary"
             >
               Back to arena
             </button>

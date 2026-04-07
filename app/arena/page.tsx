@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -15,6 +15,9 @@ interface VoteData {
   up: number;
   down: number;
 }
+
+const DRAG_LIMIT = 180;
+const SWIPE_THRESHOLD = 96;
 
 function shuffleIdeas(items: Idea[]): Idea[] {
   const arr = [...items];
@@ -63,7 +66,9 @@ function ArenaContent() {
   const [loading, setLoading] = useState(true);
   const [refilling, setRefilling] = useState(false);
   const [dragX, setDragX] = useState(0);
-  const pointerStart = useRef<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const pointerStartX = useRef<number | null>(null);
+  const pointerStartY = useRef<number | null>(null);
   const activePointerId = useRef<number | null>(null);
   const votesRef = useRef<Record<string, VoteData>>({});
   const pollActiveRef = useRef(true);
@@ -155,50 +160,64 @@ function ArenaContent() {
       const freshVotes = data.votes || {};
       votesRef.current = freshVotes;
       setVotes(freshVotes);
-      const next = new Set(voted);
-      next.add(ideaId);
-      setVoted(next);
-      saveVotedIdeas(next);
+      setVoted((prev) => {
+        const next = new Set(prev);
+        next.add(ideaId);
+        saveVotedIdeas(next);
+        return next;
+      });
       setDragX(0);
+      setIsDragging(false);
     },
-    [refilling, voted]
+    [refilling]
   );
 
-  const handlePointerDown = (pointerId: number, x: number, target: HTMLElement) => {
-    if (refilling) return;
-    activePointerId.current = pointerId;
-    pointerStart.current = x;
-    target.setPointerCapture(pointerId);
-  };
-
-  const handlePointerMove = (pointerId: number, x: number) => {
-    if (pointerStart.current === null || activePointerId.current !== pointerId) return;
-    setDragX(Math.max(-180, Math.min(180, x - pointerStart.current)));
-  };
-
   const resetPointerState = () => {
-    pointerStart.current = null;
+    pointerStartX.current = null;
+    pointerStartY.current = null;
     activePointerId.current = null;
     setDragX(0);
+    setIsDragging(false);
   };
 
-  const handlePointerUp = async (pointerId: number) => {
-    if (activePointerId.current !== pointerId) return;
-    if (refilling) {
-      resetPointerState();
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (refilling) return;
+    activePointerId.current = event.pointerId;
+    pointerStartX.current = event.clientX;
+    pointerStartY.current = event.clientY;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsDragging(true);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (
+      pointerStartX.current === null ||
+      pointerStartY.current === null ||
+      activePointerId.current !== event.pointerId
+    ) {
       return;
     }
-    if (!activeIdea) {
+
+    const nextX = event.clientX - pointerStartX.current;
+    const nextY = event.clientY - pointerStartY.current;
+    if (Math.abs(nextY) > Math.abs(nextX) * 1.2) return;
+    setDragX(Math.max(-DRAG_LIMIT, Math.min(DRAG_LIMIT, nextX)));
+  };
+
+  const handlePointerEnd = async (pointerId: number) => {
+    if (activePointerId.current !== pointerId) return;
+    if (refilling || !activeIdea) {
       resetPointerState();
       return;
     }
 
-    if (dragX > 90) {
+    if (dragX >= SWIPE_THRESHOLD) {
       await submitVote(activeIdea.id, "up");
       resetPointerState();
       return;
     }
-    if (dragX < -90) {
+
+    if (dragX <= -SWIPE_THRESHOLD) {
       await submitVote(activeIdea.id, "down");
       resetPointerState();
       return;
@@ -213,6 +232,8 @@ function ArenaContent() {
       return sum + (v?.up || 0) + (v?.down || 0);
     }, 0);
   }, [ideas, votes]);
+
+  const swipeProgress = Math.min(1, Math.abs(dragX) / SWIPE_THRESHOLD);
 
   useEffect(() => {
     if (loading || refilling) return;
@@ -236,118 +257,158 @@ function ArenaContent() {
   if (loading) return null;
 
   return (
-    <div className="min-h-dvh" style={{ background: "#F9F9F9" }}>
-      <nav className="border-b" style={{ borderColor: "#C8CDD1" }}>
-        <div className="max-w-[1100px] mx-auto px-[24px] py-[16px] flex items-center justify-between">
-          <Link href="/" className="font-bold text-[18px]" style={{ color: "#1B1B1B" }}>
+    <div className="app-shell">
+      <nav className="app-nav">
+        <div className="app-container flex flex-wrap items-center justify-between gap-4 py-4">
+          <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
           <button
             onClick={() => router.push("/arena?reset=1")}
-            className="text-[13px] underline"
-            style={{ color: "#797979", background: "none", border: "none" }}
+            className="pill-button pill-button-secondary"
           >
             Start clean battle
           </button>
         </div>
       </nav>
 
-      <main className="max-w-[1100px] mx-auto px-[24px] py-[32px]">
-        <section>
-          <h1 className="text-[38px] font-extrabold" style={{ color: "#1B1B1B" }}>
-            Swipe to vote
-          </h1>
-          <p className="text-[16px] mt-[6px]" style={{ color: "#797979" }}>
-            Swipe left for X, swipe right for Love. Build any idea anytime.
-          </p>
+      <main className="app-container page-section">
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div>
+            <p className="eyebrow">Arena</p>
+            <h1 className="balance mt-4 text-[40px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[44px]">
+              Swipe to vote
+            </h1>
+            <p className="pretty mt-3 max-w-2xl text-base leading-7 text-[var(--color-text-secondary)] sm:text-lg">
+              Swipe left for X, swipe right for Love. Build any idea anytime.
+            </p>
 
-          <div className="mt-[20px] flex items-center gap-[12px] text-[13px]" style={{ color: "#797979" }}>
-            <span>{voted.size}/{ideas.length} voted</span>
-            <span>.</span>
-            <span>{totalVotes} total votes</span>
-            {refilling ? (
-              <>
-                <span>.</span>
-                <span>Refreshing ideas...</span>
-              </>
-            ) : null}
-          </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-[var(--color-text-secondary)]">
+              <span className="panel px-4 py-2 shadow-none">{voted.size}/{ideas.length} voted</span>
+              <span className="panel px-4 py-2 shadow-none">{totalVotes} total votes</span>
+              {refilling ? <span className="panel px-4 py-2 shadow-none">Refreshing ideas...</span> : null}
+            </div>
 
-          <div className="mt-[24px] min-h-[340px] max-w-[700px]">
-            {refilling ? (
-              <div className="rounded-[10px] border p-[24px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
-                <p className="text-[16px]" style={{ color: "#797979" }}>
-                  Loading new ideas…
-                </p>
-              </div>
-            ) : activeIdea ? (
-              <div
-                onPointerDown={(e) => handlePointerDown(e.pointerId, e.clientX, e.currentTarget)}
-                onPointerMove={(e) => handlePointerMove(e.pointerId, e.clientX)}
-                onPointerUp={(e) => handlePointerUp(e.pointerId)}
-                onPointerCancel={() => resetPointerState()}
-                onPointerLeave={() => {
-                  if (pointerStart.current !== null) resetPointerState();
-                }}
-                className="rounded-[10px] border p-[24px] select-none touch-pan-y cursor-grab"
-                style={{
-                  borderColor: "#C8CDD1",
-                  background: "#fff",
-                  transform: `translateX(${dragX}px) rotate(${dragX / 18}deg)`,
-                  transition: pointerStart.current ? "none" : "transform 120ms ease",
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <h2 className="text-[24px] font-bold" style={{ color: "#1B1B1B" }}>
-                    {activeIdea.title}
-                  </h2>
-                  <span className="text-[12px]" style={{ color: "#797979" }}>
-                    {activeIdea.source === "user" ? "USER" : "AI"}
-                  </span>
+            <div className="mt-6 min-h-[360px] max-w-[760px]">
+              {refilling ? (
+                <div className="panel p-6">
+                  <p className="text-base text-[var(--color-text-secondary)]">
+                    Loading new ideas...
+                  </p>
                 </div>
+              ) : activeIdea ? (
+                <div className="relative">
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-4 z-10 flex items-center justify-between px-4"
+                    aria-hidden
+                  >
+                    <span
+                      className="rounded-[23px] border px-4 py-2 text-xs font-semibold uppercase"
+                      style={{
+                        opacity: dragX < 0 ? swipeProgress : 0.2,
+                        borderColor: "#C8CDD1",
+                        background: "#fff",
+                        color: "#7f1d1d",
+                      }}
+                    >
+                      X
+                    </span>
+                    <span
+                      className="rounded-[23px] border px-4 py-2 text-xs font-semibold uppercase"
+                      style={{
+                        opacity: dragX > 0 ? swipeProgress : 0.2,
+                        borderColor: "#C8CDD1",
+                        background: "#fff",
+                        color: "#14532d",
+                      }}
+                    >
+                      Love
+                    </span>
+                  </div>
 
-                <p className="text-[15px] mt-[10px] leading-relaxed" style={{ color: "#797979" }}>
-                  {activeIdea.description}
-                </p>
+                  <div
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={(event) => void handlePointerEnd(event.pointerId)}
+                    onPointerCancel={() => resetPointerState()}
+                    onLostPointerCapture={() => resetPointerState()}
+                    className="panel relative select-none touch-pan-y p-6 sm:p-7"
+                    style={{
+                      transform: `translate3d(${dragX}px, 0, 0) rotate(${dragX / 20}deg)`,
+                      transition: isDragging ? "none" : "transform 160ms ease-out",
+                    }}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <h2 className="balance text-[28px] font-bold leading-tight text-[var(--color-text-primary)]">
+                        {activeIdea.title}
+                      </h2>
+                      <span className="rounded-[23px] border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+                        {activeIdea.source === "user" ? "USER" : "AI"}
+                      </span>
+                    </div>
 
-                <div className="mt-[22px] grid grid-cols-3 gap-[10px]">
-                  <button
-                    onClick={() => void submitVote(activeIdea.id, "down")}
-                    className="px-[14px] py-[10px] rounded-[20px] border text-[14px] font-semibold"
-                    style={{ borderColor: "#C8CDD1", color: "#b91c1c", background: "#fff" }}
-                  >
-                    X
-                  </button>
-                  <button
-                    onClick={() => void submitVote(activeIdea.id, "up")}
-                    className="px-[14px] py-[10px] rounded-[20px] border text-[14px] font-semibold"
-                    style={{ borderColor: "#C8CDD1", color: "#166534", background: "#fff" }}
-                  >
-                    Love
-                  </button>
-                  <button
-                    onClick={() => router.push(`/build?ideaId=${activeIdea.id}`)}
-                    className="px-[14px] py-[10px] rounded-[20px] text-[14px] font-semibold"
-                    style={{ background: "#000001", color: "#fff" }}
-                  >
-                    Build
-                  </button>
+                    <p className="pretty mt-4 text-base leading-7 text-[var(--color-text-secondary)] sm:text-[17px]">
+                      {activeIdea.description}
+                    </p>
+
+                    <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                      <button
+                        onClick={() => void submitVote(activeIdea.id, "down")}
+                        className="pill-button pill-button-secondary w-full"
+                      >
+                        X
+                      </button>
+                      <button
+                        onClick={() => void submitVote(activeIdea.id, "up")}
+                        className="pill-button pill-button-secondary w-full"
+                      >
+                        Love
+                      </button>
+                      <button
+                        onClick={() => router.push(`/build?ideaId=${activeIdea.id}`)}
+                        className="pill-button pill-button-primary w-full"
+                      >
+                        Build
+                      </button>
+                    </div>
+
+                    <p className="mt-4 text-sm text-[var(--color-text-tertiary)]">
+                      Drag at least {SWIPE_THRESHOLD}px to commit a swipe.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="rounded-[10px] border p-[24px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
-                <p className="text-[16px]" style={{ color: "#1B1B1B" }}>
-                  You voted all ideas. You can still build any idea from leaderboard.
-                </p>
-              </div>
-            )}
+              ) : (
+                <div className="panel p-6">
+                  <p className="text-base text-[var(--color-text-primary)]">
+                    You voted all ideas. You can still build any idea from the leaderboard.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="mt-[14px]">
-            <Link href="/leaderboard" className="text-[14px] underline" style={{ color: "#1B1B1B" }}>
-              Open live leaderboard
-            </Link>
-          </div>
+          <aside className="space-y-4">
+            <div className="panel p-5">
+              <p className="eyebrow">Swipe rules</p>
+              <ul className="mt-4 space-y-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                <li>Swipe right or tap Love to push an idea up.</li>
+                <li>Swipe left or tap X to cut weak ideas fast.</li>
+                <li>Build is always available, even before the vote settles.</li>
+              </ul>
+            </div>
+
+            <div className="panel p-5">
+              <p className="eyebrow">Continue</p>
+              <div className="mt-4 flex flex-col gap-3">
+                <Link href="/leaderboard" className="pill-button pill-button-secondary w-full">
+                  Open live leaderboard
+                </Link>
+                <Link href="/history" className="pill-button pill-button-secondary w-full">
+                  Browse build history
+                </Link>
+              </div>
+            </div>
+          </aside>
         </section>
       </main>
     </div>
