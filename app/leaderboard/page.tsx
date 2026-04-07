@@ -172,6 +172,18 @@ function LeaderboardContent() {
         setNotice(data.error || "Admin action failed.");
         return;
       }
+      if (body.action === "boostIdea" && body.ideaId) {
+        setVotes((prev) => {
+          const current = prev[body.ideaId] || { up: 0, down: 0 };
+          return {
+            ...prev,
+            [body.ideaId]: {
+              up: current.up + 1,
+              down: current.down,
+            },
+          };
+        });
+      }
       if (data.ideas) setIdeas(data.ideas || []);
       if (data.votes) setVotes(data.votes || {});
       if (body.action === "boostIdea") setNotice("Added one Love vote.");

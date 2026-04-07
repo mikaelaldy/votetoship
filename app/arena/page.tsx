@@ -20,6 +20,7 @@ interface VoteData {
 
 const DRAG_LIMIT = 180;
 const SWIPE_THRESHOLD = 96;
+const SWIPE_EXIT_DISTANCE = 520;
 
 function shuffleIdeas(items: Idea[]): Idea[] {
   const arr = [...items];
@@ -75,6 +76,7 @@ function ArenaContent() {
   const [refilling, setRefilling] = useState(false);
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [swipeExit, setSwipeExit] = useState<"left" | "right" | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -162,6 +164,9 @@ function ArenaContent() {
   const submitVote = useCallback(
     async (ideaId: string, direction: "up" | "down") => {
       if (refilling) return;
+      setSwipeExit(direction === "up" ? "right" : "left");
+      await new Promise((resolve) => setTimeout(resolve, 180));
+
       const voterToken = getVoterToken();
       const res = await fetch("/api/vote", {
         method: "POST",
@@ -181,6 +186,7 @@ function ArenaContent() {
         saveVotedIdeas(next);
         return next;
       });
+      setSwipeExit(null);
       setDragX(0);
       setIsDragging(false);
     },
@@ -193,6 +199,7 @@ function ArenaContent() {
     activePointerId.current = null;
     setDragX(0);
     setIsDragging(false);
+    setSwipeExit(null);
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -251,6 +258,12 @@ function ArenaContent() {
   const swipeProgress = Math.min(1, Math.abs(dragX) / SWIPE_THRESHOLD);
   const activeUpvotes = activeIdea ? votes[activeIdea.id]?.up || 0 : 0;
   const canBuildActiveIdea = isAdmin || activeUpvotes >= BUILD_UPVOTE_THRESHOLD;
+  const animatedDragX =
+    swipeExit === "left"
+      ? -SWIPE_EXIT_DISTANCE
+      : swipeExit === "right"
+        ? SWIPE_EXIT_DISTANCE
+        : dragX;
 
   useEffect(() => {
     if (loading || refilling) return;
@@ -285,6 +298,19 @@ function ArenaContent() {
       if (!res.ok) {
         setNotice(data.error || "Admin action failed.");
         return;
+      }
+
+      if (body.action === "boostIdea" && body.ideaId) {
+        setVotes((prev) => {
+          const current = prev[body.ideaId] || { up: 0, down: 0 };
+          return {
+            ...prev,
+            [body.ideaId]: {
+              up: current.up + 1,
+              down: current.down,
+            },
+          };
+        });
       }
 
       if (data.ideas) setIdeas(shuffleIdeas(data.ideas || []));
@@ -397,8 +423,12 @@ function ArenaContent() {
                   onLostPointerCapture={() => resetPointerState()}
                   className="panel relative select-none touch-pan-y p-6 sm:p-7"
                   style={{
-                    transform: `translate3d(${dragX}px, 0, 0) rotate(${dragX / 20}deg)`,
-                    transition: isDragging ? "none" : "transform 160ms ease-out",
+                    transform: `translate3d(${animatedDragX}px, 0, 0) rotate(${animatedDragX / 20}deg) scale(${swipeExit ? 0.98 : 1})`,
+                    opacity: swipeExit ? 0 : 1,
+                    transition:
+                      isDragging && !swipeExit
+                        ? "none"
+                        : "transform 180ms ease-out, opacity 180ms ease-out",
                   }}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">

@@ -54,10 +54,22 @@ function BuildContent() {
   const [appHtml, setAppHtml] = useState("");
   const [tabNotice, setTabNotice] = useState("");
   const abortRef = useRef<AbortController | null>(null);
-  const codeEndRef = useRef<HTMLDivElement>(null);
+  const codeContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    codeEndRef.current?.scrollIntoView({ behavior: streaming ? "smooth" : "auto" });
+    const container = codeContainerRef.current;
+    if (!container) return;
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const shouldStickToBottom = streaming || distanceFromBottom < 96;
+
+    if (shouldStickToBottom) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: streaming ? "smooth" : "auto",
+      });
+    }
   }, [landingHtml, appHtml, streamTab, streaming]);
 
   useEffect(() => {
@@ -356,7 +368,10 @@ function BuildContent() {
             </div>
           ) : null}
 
-          <div className={`${jetbrains.className} max-h-[70dvh] overflow-y-auto overflow-x-hidden`}>
+          <div
+            ref={codeContainerRef}
+            className={`${jetbrains.className} max-h-[70dvh] overflow-y-auto overflow-x-hidden`}
+          >
             {waitingForApp ? (
               <div className="p-4 text-sm leading-7 text-[#9ca3af]">
                 App HTML has not started yet. Wait for the landing page to finish first.
@@ -391,7 +406,6 @@ function BuildContent() {
                 {displayForTab}
               </pre>
             )}
-            <div ref={codeEndRef} />
           </div>
         </div>
 

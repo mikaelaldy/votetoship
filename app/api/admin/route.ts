@@ -109,7 +109,12 @@ export async function POST(request: NextRequest) {
       await addAdminVote({ ideaId: body.ideaId, direction: "up" });
       const ideas = await getActiveIdeas();
       const votes = await getVoteMap(ideas.map((idea) => idea.id));
-      return NextResponse.json({ ok: true, votes });
+      return NextResponse.json({
+        ok: true,
+        ideaId: body.ideaId,
+        votes,
+        upvotes: votes[body.ideaId]?.up || 0,
+      });
     }
 
     if (body.action === "deleteIdea") {
