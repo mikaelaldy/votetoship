@@ -16,6 +16,17 @@ interface VoteData {
   down: number;
 }
 
+function shuffleIdeas(items: Idea[]): Idea[] {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
 function getVoterToken(): string {
   if (typeof window === "undefined") return "anon";
   const key = "vts_voter_token";
@@ -50,6 +61,7 @@ function ArenaContent() {
   const [votes, setVotes] = useState<Record<string, VoteData>>({});
   const [voted, setVoted] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [refilling, setRefilling] = useState(false);
   const [dragX, setDragX] = useState(0);
   const pointerStart = useRef<number | null>(null);
   const activePointerId = useRef<number | null>(null);
@@ -63,8 +75,15 @@ function ArenaContent() {
     const ideasData = await ideasRes.json();
     const votesData = await votesRes.json();
 
-    setIdeas(ideasData.ideas || []);
+    const nextIdeas = shuffleIdeas(ideasData.ideas || []);
+    setIdeas(nextIdeas);
     setVotes(votesData.votes || {});
+    const currentIds = new Set(nextIdeas.map((idea: Idea) => idea.id));
+    setVoted((prev) => {
+      const filtered = new Set([...prev].filter((id) => currentIds.has(id)));
+      saveVotedIdeas(filtered);
+      return filtered;
+    });
   }, []);
 
   useEffect(() => {
@@ -100,22 +119,9 @@ function ArenaContent() {
     return () => clearInterval(poll);
   }, []);
 
-  const scoreOf = useCallback(
-    (id: string) => {
-      const v = votes[id];
-      return (v?.up || 0) - (v?.down || 0);
-    },
-    [votes]
-  );
-
-  const rankedIdeas = useMemo(
-    () => [...ideas].sort((a, b) => scoreOf(b.id) - scoreOf(a.id)),
-    [ideas, scoreOf]
-  );
-
   const pendingIdeas = useMemo(
-    () => rankedIdeas.filter((idea) => !voted.has(idea.id)),
-    [rankedIdeas, voted]
+    () => ideas.filter((idea) => !voted.has(idea.id)),
+    [ideas, voted]
   );
 
   const activeIdea = pendingIdeas[0] || null;
@@ -188,6 +194,25 @@ function ArenaContent() {
     }, 0);
   }, [ideas, votes]);
 
+  useEffect(() => {
+    if (loading || refilling) return;
+    // Keep swipe flow almost infinite by refilling before user hits empty state.
+    if (pendingIdeas.length > 2) return;
+
+    (async () => {
+      setRefilling(true);
+      try {
+        await fetch("/api/ideas", { method: "POST" });
+        const empty = new Set<string>();
+        setVoted(empty);
+        saveVotedIdeas(empty);
+        await fetchAll();
+      } finally {
+        setRefilling(false);
+      }
+    })();
+  }, [fetchAll, loading, pendingIdeas.length, refilling]);
+
   if (loading) return null;
 
   return (
@@ -220,6 +245,12 @@ function ArenaContent() {
             <span>{voted.size}/{ideas.length} voted</span>
             <span>.</span>
             <span>{totalVotes} total votes</span>
+            {refilling ? (
+              <>
+                <span>.</span>
+                <span>Refreshing ideas...</span>
+              </>
+            ) : null}
           </div>
 
           <div className="mt-[24px] min-h-[340px] max-w-[700px]">

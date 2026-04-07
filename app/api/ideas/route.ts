@@ -11,29 +11,64 @@ interface RawIdea {
 function fallbackIdeas(): RawIdea[] {
   return [
     {
-      title: "SwipeFit Sprint",
+      title: "Invoice Follow-up Copilot",
       description:
-        "A playful micro habit challenge where each swipe commits to a tiny daily action.",
+        "For freelance operators, it flags overdue invoices and drafts polite follow-ups so cash flow delays get resolved faster.",
     },
     {
-      title: "Mood Palette Mixer",
+      title: "Churn Rescue Inbox",
       description:
-        "Blend moods into animated palettes and generate daily visual cards to share.",
+        "For SaaS support teams, it surfaces at-risk accounts from ticket tone and response lag so reps can intervene before cancellation.",
     },
     {
-      title: "Focus Arena",
+      title: "Deal Desk Snapshot",
       description:
-        "Compete against your own focus sessions with a live scoreboard and streak bonuses.",
+        "For sales managers, it summarizes discount requests and approval blockers so enterprise deals close with fewer internal delays.",
     },
     {
-      title: "Tiny Product Judge",
+      title: "Refund Reason Radar",
       description:
-        "Compare two micro-product ideas at a time and score them for fun and usefulness.",
+        "For ecommerce founders, it clusters refund reasons into fixable product issues so repeat returns and support costs drop.",
     },
     {
-      title: "Retro Landing Lab",
+      title: "Content Repurpose Queue",
       description:
-        "Remix old-school web aesthetics into modern landing concepts with interactive controls.",
+        "For creator teams, it converts long-form posts into short channel-ready drafts so publishing output increases without extra headcount.",
+    },
+    {
+      title: "Interview Debrief Board",
+      description:
+        "For hiring teams, it structures interview notes into comparable scorecards so decision meetings are faster and less biased.",
+    },
+    {
+      title: "No-show Recovery CRM",
+      description:
+        "For clinics and service businesses, it detects likely no-shows and triggers reminder sequences so appointment utilization improves.",
+    },
+    {
+      title: "SLA Breach Predictor",
+      description:
+        "For customer success leaders, it predicts which accounts may miss SLA thresholds so escalation starts before penalties apply.",
+    },
+    {
+      title: "Renewal Prep Tracker",
+      description:
+        "For account managers, it compiles usage gaps and value proofs ahead of renewals so negotiations start with stronger leverage.",
+    },
+    {
+      title: "Meeting Action Closer",
+      description:
+        "For operations teams, it turns meeting notes into tracked owners and due dates so action items do not disappear post-call.",
+    },
+    {
+      title: "Onboarding Friction Map",
+      description:
+        "For product teams, it identifies where trial users stall during setup so activation bottlenecks can be fixed quickly.",
+    },
+    {
+      title: "Policy QA Assistant",
+      description:
+        "For compliance managers, it checks draft policies against missing controls so audit prep time is reduced.",
     },
   ];
 }
@@ -49,7 +84,7 @@ export async function POST() {
       parsed = fallbackIdeas();
     }
 
-    const ideas = await setActiveBattle(parsed.slice(0, 5));
+    const ideas = await setActiveBattle(parsed.slice(0, 12));
     return NextResponse.json({ ideas });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
