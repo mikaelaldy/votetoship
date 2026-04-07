@@ -40,6 +40,13 @@ export default function LandingPage() {
             Start Swiping
           </Link>
           <Link
+            href="/leaderboard"
+            className="px-[24px] py-[11px] rounded-[22px] text-[15px] font-semibold border"
+            style={{ borderColor: "#C8CDD1", color: "#1B1B1B" }}
+          >
+            Live Leaderboard
+          </Link>
+          <Link
             href="/history"
             className="px-[24px] py-[11px] rounded-[22px] text-[15px] font-semibold border"
             style={{ borderColor: "#C8CDD1", color: "#1B1B1B" }}

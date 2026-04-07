@@ -52,6 +52,7 @@ function ArenaContent() {
   const [loading, setLoading] = useState(true);
   const [dragX, setDragX] = useState(0);
   const pointerStart = useRef<number | null>(null);
+  const activePointerId = useRef<number | null>(null);
 
   const fetchAll = useCallback(async () => {
     const [ideasRes, votesRes] = await Promise.all([
@@ -141,27 +142,43 @@ function ArenaContent() {
     [voted]
   );
 
-  const handlePointerDown = (x: number) => {
+  const handlePointerDown = (pointerId: number, x: number, target: HTMLElement) => {
+    activePointerId.current = pointerId;
     pointerStart.current = x;
+    target.setPointerCapture(pointerId);
   };
 
-  const handlePointerMove = (x: number) => {
-    if (pointerStart.current === null) return;
-    setDragX(x - pointerStart.current);
+  const handlePointerMove = (pointerId: number, x: number) => {
+    if (pointerStart.current === null || activePointerId.current !== pointerId) return;
+    // Keep swipe movement bounded so card stays controllable on long drags.
+    setDragX(Math.max(-180, Math.min(180, x - pointerStart.current)));
   };
 
-  const handlePointerUp = async () => {
-    if (!activeIdea) return;
+  const resetPointerState = () => {
+    pointerStart.current = null;
+    activePointerId.current = null;
+    setDragX(0);
+  };
+
+  const handlePointerUp = async (pointerId: number) => {
+    if (activePointerId.current !== pointerId) return;
+    if (!activeIdea) {
+      resetPointerState();
+      return;
+    }
+
     if (dragX > 90) {
       await submitVote(activeIdea.id, "up");
+      resetPointerState();
       return;
     }
     if (dragX < -90) {
       await submitVote(activeIdea.id, "down");
+      resetPointerState();
       return;
     }
-    setDragX(0);
-    pointerStart.current = null;
+
+    resetPointerState();
   };
 
   const totalVotes = useMemo(() => {
@@ -190,7 +207,7 @@ function ArenaContent() {
         </div>
       </nav>
 
-      <main className="max-w-[1100px] mx-auto px-[24px] py-[32px] grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-[24px]">
+      <main className="max-w-[1100px] mx-auto px-[24px] py-[32px]">
         <section>
           <h1 className="text-[38px] font-extrabold" style={{ color: "#1B1B1B" }}>
             Swipe to vote
@@ -205,13 +222,16 @@ function ArenaContent() {
             <span>{totalVotes} total votes</span>
           </div>
 
-          <div className="mt-[24px] min-h-[340px]">
+          <div className="mt-[24px] min-h-[340px] max-w-[700px]">
             {activeIdea ? (
               <div
-                onPointerDown={(e) => handlePointerDown(e.clientX)}
-                onPointerMove={(e) => handlePointerMove(e.clientX)}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
+                onPointerDown={(e) => handlePointerDown(e.pointerId, e.clientX, e.currentTarget)}
+                onPointerMove={(e) => handlePointerMove(e.pointerId, e.clientX)}
+                onPointerUp={(e) => handlePointerUp(e.pointerId)}
+                onPointerCancel={() => resetPointerState()}
+                onPointerLeave={() => {
+                  if (pointerStart.current !== null) resetPointerState();
+                }}
                 className="rounded-[10px] border p-[24px] select-none touch-pan-y cursor-grab"
                 style={{
                   borderColor: "#C8CDD1",
@@ -265,52 +285,11 @@ function ArenaContent() {
               </div>
             )}
           </div>
-        </section>
 
-        <section>
-          <h2 className="text-[22px] font-bold" style={{ color: "#1B1B1B" }}>
-            Live leaderboard
-          </h2>
-          <div className="mt-[14px] space-y-[10px]">
-            {rankedIdeas.map((idea, index) => {
-              const v = votes[idea.id] || { up: 0, down: 0 };
-              const score = v.up - v.down;
-              return (
-                <div key={idea.id} className="rounded-[8px] border p-[14px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
-                  <div className="flex items-start gap-[10px]">
-                    <span className="text-[20px] font-extrabold w-[24px] text-right" style={{ color: "#C8CDD1" }}>
-                      {index + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-[10px]">
-                        <h3 className="text-[15px] font-semibold truncate" style={{ color: "#1B1B1B" }}>
-                          {idea.title}
-                        </h3>
-                        <span className="text-[13px] font-semibold" style={{ color: score >= 0 ? "#1B1B1B" : "#b91c1c" }}>
-                          {score >= 0 ? "+" : ""}
-                          {score}
-                        </span>
-                      </div>
-                      <p className="text-[13px] mt-[4px] line-clamp-2" style={{ color: "#797979" }}>
-                        {idea.description}
-                      </p>
-                      <div className="mt-[8px] flex items-center justify-between">
-                        <span className="text-[12px]" style={{ color: "#797979" }}>
-                          Love {v.up} · X {v.down}
-                        </span>
-                        <button
-                          onClick={() => router.push(`/build?ideaId=${idea.id}`)}
-                          className="text-[12px] underline"
-                          style={{ color: "#1B1B1B", background: "none", border: "none" }}
-                        >
-                          Build now
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="mt-[14px]">
+            <Link href="/leaderboard" className="text-[14px] underline" style={{ color: "#1B1B1B" }}>
+              Open live leaderboard
+            </Link>
           </div>
         </section>
       </main>
