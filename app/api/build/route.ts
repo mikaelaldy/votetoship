@@ -14,7 +14,7 @@ import {
   updateBuildOutputs,
 } from "@/lib/store";
 
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 const STALE_BUILD_MS = 90_000;
 const ACTIVE_BUILD_HEARTBEAT_MS = 45_000;
