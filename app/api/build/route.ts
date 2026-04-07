@@ -14,7 +14,7 @@ import {
   updateBuildOutputs,
 } from "@/lib/store";
 
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 const STALE_BUILD_MS = 90_000;
 const ACTIVE_BUILD_HEARTBEAT_MS = 45_000;
@@ -32,6 +32,58 @@ function buildReasoning(title: string, description: string) {
   return `${title} becomes a focused landing page and a lightweight MVP for: ${description}`;
 }
 
+function buildLandingPrompt(title: string, description: string) {
+  return `Build a responsive marketing landing page for this idea.
+Title: ${title}
+Description: ${description}
+
+Requirements:
+- Return only a complete standalone HTML document starting with <!DOCTYPE html>
+- Use Tailwind via CDN and vanilla JavaScript only
+- Keep it polished, conversion-focused, and mobile friendly
+- Include hero, value props, feature section, workflow section, CTA, and footer
+- Keep the implementation compact and readable
+- Do not use external fonts, icon packs, cursor effects, particle backgrounds, parallax, or ornamental animation systems
+- Keep custom CSS short and utilitarian
+- Prefer system fonts and simple inline SVG only when needed
+- End the response with </body></html>
+- No markdown fences, no commentary, no JSON`;
+}
+
+function buildAppPrompt(title: string, description: string) {
+  return `Build a responsive MVP product web app for this idea.
+Title: ${title}
+Description: ${description}
+
+Requirements:
+- Return only a complete standalone HTML document starting with <!DOCTYPE html>
+- Use Tailwind via CDN and vanilla JavaScript only
+- Build a real single-page product interface, not a marketing landing page
+- The UI must open directly into the core workflow with realistic demo data
+- Include working inputs, buttons, lists/cards/tables, and meaningful interactions
+- Include at least one primary workflow a user can complete end-to-end in the demo
+- Include useful product states where appropriate: empty, loading, success, validation, or error
+- Keep the implementation compact, readable, and product-focused
+- Avoid decorative-only sections like hero banners, testimonials, pricing blocks, giant stats strips, or multiple marketing sections
+- Avoid external fonts, icon packs, heavy illustrations, custom cursors, particle effects, and long CSS systems
+- Prefer system fonts, minimal custom CSS, and simple inline SVG only when needed
+- Target roughly 220-320 lines total unless the product genuinely needs a bit more
+- Choose exactly one product layout pattern that best fits the idea and commit to it:
+  1. Dashboard: KPI cards, activity feed, quick actions, detail panel
+  2. Workspace/Table tool: filters, search, sortable table/list, editor/detail drawer
+  3. Planner/Calendar: schedule list, date controls, task composer, upcoming items
+  4. Inbox/Review queue: queue list, decision panel, approve/reject/archive actions
+  5. Calculator/Simulator: inputs sidebar, computed results, comparison cards, chart/result breakdown
+- The chosen layout must be obvious in the UI structure
+- Default to Dashboard for analytics/ops products, Workspace/Table for CRUD/data products, Planner for scheduling products, Inbox/Review queue for triage/approval products, and Calculator/Simulator for finance or forecasting products
+- Include a realistic top bar and one main content area only; avoid long stacked sections
+- Keep the app on one viewport or close to one viewport on desktop when possible
+- Seed the UI with believable sample records, values, labels, and statuses specific to the idea
+- Make the interactive JavaScript support the core workflow of the chosen layout, not generic placeholder button alerts
+- End the response with </body></html>
+- No markdown fences, no commentary, no JSON`;
+}
+
 function hasCompleteHtmlDocument(html: string) {
   const trimmed = html.trim();
   return (
@@ -44,7 +96,16 @@ function hasCompleteHtmlDocument(html: string) {
 function sanitizeResumedHtml(existingHtml: string, incomingChunk: string) {
   if (!existingHtml || !incomingChunk) return incomingChunk;
 
-  const trimmedChunk = incomingChunk.trimStart();
+  let sanitized = incomingChunk
+    .replace(/```html\s*/gi, "")
+    .replace(/```\s*/g, "");
+
+  const duplicateDoctypeIndex = sanitized.indexOf("<!DOCTYPE html>");
+  if (duplicateDoctypeIndex > 0) {
+    sanitized = sanitized.slice(0, duplicateDoctypeIndex);
+  }
+
+  const trimmedChunk = sanitized.trimStart();
   if (
     trimmedChunk.startsWith("<!DOCTYPE html>") ||
     trimmedChunk.startsWith("<html") ||
@@ -54,14 +115,14 @@ function sanitizeResumedHtml(existingHtml: string, incomingChunk: string) {
     return "";
   }
 
-  const maxOverlap = Math.min(existingHtml.length, incomingChunk.length);
+  const maxOverlap = Math.min(existingHtml.length, sanitized.length);
   for (let size = maxOverlap; size > 0; size -= 1) {
-    if (existingHtml.endsWith(incomingChunk.slice(0, size))) {
-      return incomingChunk.slice(size);
+    if (existingHtml.endsWith(sanitized.slice(0, size))) {
+      return sanitized.slice(size);
     }
   }
 
-  return incomingChunk;
+  return sanitized;
 }
 
 async function streamHtmlDocument(params: {
@@ -77,30 +138,8 @@ async function streamHtmlDocument(params: {
 }) {
   const basePrompt =
     params.kind === "landing"
-      ? `Build a responsive marketing landing page for this idea.
-Title: ${params.title}
-Description: ${params.description}
-
-Requirements:
-- Return only a complete standalone HTML document starting with <!DOCTYPE html>
-- Use Tailwind via CDN and vanilla JavaScript only
-- Keep it polished, conversion-focused, and mobile friendly
-- Include hero, value props, feature section, workflow section, CTA, and footer
-- Keep custom CSS short and avoid unnecessary libraries
-- End the response with </body></html>
-- No markdown fences, no commentary, no JSON`
-      : `Build a responsive MVP web app for this idea.
-Title: ${params.title}
-Description: ${params.description}
-
-Requirements:
-- Return only a complete standalone HTML document starting with <!DOCTYPE html>
-- Use Tailwind via CDN and vanilla JavaScript only
-- Build a realistic single-page product interface with working demo interactions
-- Include clear forms, lists, states, and empty/loading/error treatments where appropriate
- - Keep custom CSS short and avoid unnecessary libraries
- - End the response with </body></html>
- - No markdown fences, no commentary, no JSON`;
+      ? buildLandingPrompt(params.title, params.description)
+      : buildAppPrompt(params.title, params.description);
 
   const initialHtml = params.initialHtml || "";
   const SAVE_INTERVAL_MS = 3000;
@@ -139,11 +178,13 @@ Rules for continuation:
   try {
     for await (const chunk of callGLMStream(
       [
-        {
-          role: "system",
-          content:
-            "You are an expert web developer. Return only valid standalone HTML. Do not include analysis, thinking, markdown fences, or any text before or after the HTML document.",
-        },
+          {
+            role: "system",
+            content:
+              params.kind === "landing"
+                ? "You are an expert product web developer. Return only valid standalone HTML. Favor compact, high-signal landing pages and avoid ornamental code, markdown fences, or any text before or after the HTML document."
+                : "You are an expert product engineer building compact MVP web apps. Return only valid standalone HTML. Build the core product workflow first, avoid marketing sections and ornamental code, and do not include markdown fences or any text before or after the HTML document.",
+          },
         {
           role: "user",
           content: attemptPrompt,
@@ -152,7 +193,7 @@ Rules for continuation:
       0.1,
       {
         timeoutMs: PHASE_TIMEOUT_MS,
-        maxOutputChars: 140000,
+        maxOutputChars: params.kind === "landing" ? 110000 : 90000,
         signal: params.abortSignal,
       }
     )) {
