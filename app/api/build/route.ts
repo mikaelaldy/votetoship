@@ -103,9 +103,13 @@ Retry constraints:
 
   let lastError: Error | null = null;
 
+  const SAVE_INTERVAL_MS = 3000;
+
   for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
     const attempt = attempts[attemptIndex];
     const currentText = { value: "" };
+    let lastSaveTime = 0;
+    let savePending = false;
 
     params.controller.enqueue(params.send({ type: "phase", phase: params.kind }));
     params.controller.enqueue(
@@ -151,6 +155,25 @@ Retry constraints:
           })
         );
 
+        // Throttle DB writes to every 3s instead of every chunk
+        const now = Date.now();
+        if (now - lastSaveTime > SAVE_INTERVAL_MS) {
+          lastSaveTime = now;
+          savePending = false;
+          await updateBuildOutputs({
+            buildId: params.buildId,
+            landingHtml: params.kind === "landing" ? currentText.value : undefined,
+            appHtml: params.kind === "app" ? currentText.value : undefined,
+            streamText: currentText.value,
+            reasoning: buildReasoning(params.title, params.description),
+          });
+        } else {
+          savePending = true;
+        }
+      }
+
+      // Always save the final state after the stream ends
+      if (savePending) {
         await updateBuildOutputs({
           buildId: params.buildId,
           landingHtml: params.kind === "landing" ? currentText.value : undefined,

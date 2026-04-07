@@ -411,6 +411,12 @@ function BuildContent() {
                   ? "Waiting for landing page HTML..."
                   : "Waiting for MVP app HTML..."}
               </div>
+            ) : streaming ? (
+              /* Use lightweight <pre> during streaming to avoid expensive
+                 SyntaxHighlighter re-tokenization on every chunk */
+              <pre className="whitespace-pre-wrap break-words p-4 text-[12px] leading-[1.6] text-[#e5e7eb]" style={{ background: "#0d0d0d" }}>
+                {displayForTab}
+              </pre>
             ) : oneDark ? (
               <SyntaxHighlighter
                 language="markup"

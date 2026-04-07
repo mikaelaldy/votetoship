@@ -79,7 +79,7 @@ export async function callGLM(
         model,
         messages,
         temperature,
-        max_tokens: 16384,
+        max_tokens: 65536,
       }),
     });
   } catch (error) {
@@ -127,7 +127,7 @@ export async function* callGLMStream(
         model,
         messages,
         temperature,
-        max_tokens: 16384,
+        max_tokens: 65536,
         stream: true,
       }),
     });
@@ -233,7 +233,7 @@ export async function* callGLMStreamTagged(
         model,
         messages,
         temperature,
-        max_tokens: 16384,
+        max_tokens: 65536,
         stream: true,
       }),
     });
