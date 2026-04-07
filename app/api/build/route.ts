@@ -103,27 +103,10 @@ Requirements:
  - No markdown fences, no commentary, no JSON`;
 
   const initialHtml = params.initialHtml || "";
-  const attempts = [
-    {
-      maxOutputChars: 140000,
-      timeoutMs: PHASE_TIMEOUT_MS,
-    },
-    {
-      maxOutputChars: 100000,
-      timeoutMs: PHASE_TIMEOUT_MS,
-    },
-  ];
-
-  let lastError: Error | null = null;
-  let resumeHtml = initialHtml;
-
   const SAVE_INTERVAL_MS = 3000;
-
-  for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
-    const attempt = attempts[attemptIndex];
-    const currentText = { value: resumeHtml };
-    const attemptPrompt = currentText.value
-      ? `${basePrompt}
+  const currentText = { value: initialHtml };
+  const attemptPrompt = currentText.value
+    ? `${basePrompt}
 
 Continue this partially generated HTML document from exactly where it stops.
 
@@ -134,94 +117,60 @@ Rules for continuation:
 - Continue from the saved partial output only
 - Do not restart the document
 - Do not repeat <!DOCTYPE html>, <html>, <head>, or already-generated markup
-- Finish the same document and close all remaining tags exactly once${
-          attemptIndex > 0
-            ? `
-- Keep the remaining output compact
-- Avoid long style blocks and extra sections
-- The final line must be </html>`
-            : ""
-        }`
-      : attemptIndex > 0
-        ? `${basePrompt}
+ - Finish the same document and close all remaining tags exactly once`
+    : basePrompt;
+  let lastSaveTime = 0;
+  let savePending = false;
 
-Retry constraints:
-- Keep the document under 450 lines
-- Avoid external fonts, icon packs, and long style blocks
-- Prefer compact sections and concise markup
-- The final line must be </html>`
-        : basePrompt;
-    let lastSaveTime = 0;
-    let savePending = false;
+  params.controller.enqueue(params.send({ type: "phase", phase: params.kind }));
+  params.controller.enqueue(
+    params.send({
+      type: "status",
+      message: currentText.value
+        ? params.kind === "landing"
+          ? "Resuming saved landing page HTML..."
+          : "Resuming saved MVP app HTML..."
+        : params.kind === "landing"
+          ? "Generating landing page HTML first..."
+          : "Landing page done. Generating MVP app HTML...",
+    })
+  );
 
-    params.controller.enqueue(params.send({ type: "phase", phase: params.kind }));
-    params.controller.enqueue(
-      params.send({
-        type: "status",
-        message: currentText.value
-          ? params.kind === "landing"
-            ? attemptIndex === 0
-              ? "Resuming saved landing page HTML..."
-              : "Landing page ran long. Continuing from saved progress..."
-            : attemptIndex === 0
-              ? "Resuming saved MVP app HTML..."
-              : "MVP app ran long. Continuing from saved progress..."
-          : params.kind === "landing"
-            ? "Generating landing page HTML first..."
-            : "Landing page done. Generating MVP app HTML...",
-      })
-    );
-
-    try {
-      for await (const chunk of callGLMStream(
-        [
-          {
-            role: "system",
-            content:
-              "You are an expert web developer. Return only valid standalone HTML. Do not include analysis, thinking, markdown fences, or any text before or after the HTML document.",
-          },
-          {
-            role: "user",
-            content: attemptPrompt,
-          },
-        ],
-        0.1,
+  try {
+    for await (const chunk of callGLMStream(
+      [
         {
-          timeoutMs: attempt.timeoutMs,
-          maxOutputChars: attempt.maxOutputChars,
-          signal: params.abortSignal,
-        }
-      )) {
-        activeBuilds.set(params.ideaId, { lastSeenAt: Date.now() });
-        const sanitizedChunk = sanitizeResumedHtml(currentText.value, chunk);
-        if (!sanitizedChunk) continue;
-        currentText.value += sanitizedChunk;
-        params.controller.enqueue(
-          params.send({
-            type: params.kind === "landing" ? "landing_chunk" : "app_chunk",
-            content: sanitizedChunk,
-          })
-        );
-
-        // Throttle DB writes to every 3s instead of every chunk
-        const now = Date.now();
-        if (now - lastSaveTime > SAVE_INTERVAL_MS) {
-          lastSaveTime = now;
-          savePending = false;
-          await updateBuildOutputs({
-            buildId: params.buildId,
-            landingHtml: params.kind === "landing" ? currentText.value : undefined,
-            appHtml: params.kind === "app" ? currentText.value : undefined,
-            streamText: currentText.value,
-            reasoning: buildReasoning(params.title, params.description),
-          });
-        } else {
-          savePending = true;
-        }
+          role: "system",
+          content:
+            "You are an expert web developer. Return only valid standalone HTML. Do not include analysis, thinking, markdown fences, or any text before or after the HTML document.",
+        },
+        {
+          role: "user",
+          content: attemptPrompt,
+        },
+      ],
+      0.1,
+      {
+        timeoutMs: PHASE_TIMEOUT_MS,
+        maxOutputChars: 140000,
+        signal: params.abortSignal,
       }
+    )) {
+      activeBuilds.set(params.ideaId, { lastSeenAt: Date.now() });
+      const sanitizedChunk = sanitizeResumedHtml(currentText.value, chunk);
+      if (!sanitizedChunk) continue;
+      currentText.value += sanitizedChunk;
+      params.controller.enqueue(
+        params.send({
+          type: params.kind === "landing" ? "landing_chunk" : "app_chunk",
+          content: sanitizedChunk,
+        })
+      );
 
-      // Always save the final state after the stream ends
-      if (savePending) {
+      const now = Date.now();
+      if (now - lastSaveTime > SAVE_INTERVAL_MS) {
+        lastSaveTime = now;
+        savePending = false;
         await updateBuildOutputs({
           buildId: params.buildId,
           landingHtml: params.kind === "landing" ? currentText.value : undefined,
@@ -229,39 +178,35 @@ Retry constraints:
           streamText: currentText.value,
           reasoning: buildReasoning(params.title, params.description),
         });
+      } else {
+        savePending = true;
       }
-
-      if (!hasCompleteHtmlDocument(currentText.value)) {
-        throw new Error(`${params.kind} build returned incomplete HTML`);
-      }
-
-      params.controller.enqueue(
-        params.send({
-          type: params.kind === "landing" ? "landing_done" : "app_done",
-        })
-      );
-
-      return currentText.value;
-    } catch (error) {
-      resumeHtml = currentText.value;
-      lastError = error instanceof Error ? error : new Error("HTML generation failed");
-      if (attemptIndex === attempts.length - 1) {
-        break;
-      }
-
-      params.controller.enqueue(
-        params.send({
-          type: "status",
-          message:
-            params.kind === "landing"
-              ? "Landing page timed out or came back incomplete. Retrying..."
-              : "MVP app timed out or came back incomplete. Retrying...",
-        })
-      );
     }
-  }
 
-  throw lastError ?? new Error(`${params.kind} build failed`);
+    if (savePending) {
+      await updateBuildOutputs({
+        buildId: params.buildId,
+        landingHtml: params.kind === "landing" ? currentText.value : undefined,
+        appHtml: params.kind === "app" ? currentText.value : undefined,
+        streamText: currentText.value,
+        reasoning: buildReasoning(params.title, params.description),
+      });
+    }
+
+    if (!hasCompleteHtmlDocument(currentText.value)) {
+      throw new Error(`${params.kind} build returned incomplete HTML`);
+    }
+
+    params.controller.enqueue(
+      params.send({
+        type: params.kind === "landing" ? "landing_done" : "app_done",
+      })
+    );
+
+    return currentText.value;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("HTML generation failed");
+  }
 }
 
 async function buildForIdea(params: {
@@ -269,6 +214,7 @@ async function buildForIdea(params: {
   title: string;
   description: string;
   buildId: string;
+  startedAt: string;
   existingLandingHtml?: string;
   existingAppHtml?: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
@@ -335,6 +281,8 @@ async function buildForIdea(params: {
       reasoning,
       landingHtml,
       appHtml,
+      startedAt: params.startedAt,
+      completedAt: new Date().toISOString(),
     })
   );
 }
@@ -364,6 +312,8 @@ async function followExistingBuild(params: {
       slug: initial.slug,
       title: initial.title,
       status: initial.status,
+      startedAt: initial.started_at,
+      completedAt: initial.completed_at,
       buildPhase:
         initial.status === "completed"
           ? "done"
@@ -445,6 +395,8 @@ async function followExistingBuild(params: {
           reasoning: current.reasoning,
           landingHtml: current.landing_html,
           appHtml: current.app_html,
+          startedAt: current.started_at,
+          completedAt: current.completed_at,
         })
       );
       return;
@@ -530,6 +482,8 @@ export async function GET(request: NextRequest) {
               landingHtml: existing.landing_html,
               appHtml: existing.app_html,
               cached: true,
+              startedAt: existing.started_at,
+              completedAt: existing.completed_at,
             })
           );
           controller.close();
@@ -559,17 +513,33 @@ export async function GET(request: NextRequest) {
             forceRebuild ||
             isStaleBuilding
           ) {
+            const restartedAt = new Date().toISOString();
             await restartBuild({
               buildId: existing.id,
               title: idea.title,
               slug: ideaId || slugify(idea.title),
             });
             controller.enqueue(send({ type: "status", message: "Build restarted" }));
+            controller.enqueue(
+              send({
+                type: "snapshot",
+                slug: ideaId || slugify(idea.title),
+                title: idea.title,
+                status: "building",
+                startedAt: restartedAt,
+                completedAt: null,
+                buildPhase: "boot",
+                landingHtml: "",
+                appHtml: "",
+                statusMessage: "Build restarted",
+              })
+            );
             await buildForIdea({
               ideaId,
               title: idea.title,
               description: idea.description,
               buildId: existing.id,
+              startedAt: restartedAt,
               controller,
               send,
               abortSignal,
@@ -586,6 +556,8 @@ export async function GET(request: NextRequest) {
                 slug: existing.slug,
                 title: existing.title,
                 status: existing.status,
+                startedAt: existing.started_at,
+                completedAt: existing.completed_at,
                 buildPhase: hasCompleteHtmlDocument(existing.landing_html) ? "app" : "landing",
                 landingHtml: existing.landing_html,
                 appHtml: existing.app_html,
@@ -603,6 +575,7 @@ export async function GET(request: NextRequest) {
               title: idea.title,
               description: idea.description,
               buildId: existing.id,
+              startedAt: existing.started_at,
               existingLandingHtml: existing.landing_html,
               existingAppHtml: existing.app_html,
               controller,
@@ -623,12 +596,27 @@ export async function GET(request: NextRequest) {
 
         activeBuilds.set(ideaId, { lastSeenAt: Date.now() });
         controller.enqueue(send({ type: "status", message: "Build started" }));
+        controller.enqueue(
+          send({
+            type: "snapshot",
+            slug: created.slug,
+            title: created.title,
+            status: "building",
+            startedAt: created.started_at,
+            completedAt: null,
+            buildPhase: "boot",
+            landingHtml: "",
+            appHtml: "",
+            statusMessage: "Build started",
+          })
+        );
 
         await buildForIdea({
           ideaId,
           title: idea.title,
           description: idea.description,
           buildId: created.id,
+          startedAt: created.started_at,
           controller,
           send,
           abortSignal,

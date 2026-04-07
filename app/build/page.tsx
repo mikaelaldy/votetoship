@@ -53,7 +53,8 @@ function readBuildCache(ideaId: string) {
       phaseStatus?: "idle" | "streaming" | "retrying";
       landingHtml?: string;
       appHtml?: string;
-      elapsed?: number;
+      startedAt?: string;
+      completedAt?: string;
     };
   } catch {
     return null;
@@ -63,6 +64,14 @@ function readBuildCache(ideaId: string) {
 function clearBuildCache(ideaId: string) {
   if (!ideaId || typeof window === "undefined") return;
   window.localStorage.removeItem(getBuildCacheKey(ideaId));
+}
+
+function getElapsedFromTimestamps(startedAt?: string, completedAt?: string) {
+  const startedMs = startedAt ? Date.parse(startedAt) : NaN;
+  if (!Number.isFinite(startedMs)) return 0;
+  const endMs = completedAt ? Date.parse(completedAt) : Date.now();
+  if (!Number.isFinite(endMs)) return 0;
+  return Math.max(0, Math.floor((endMs - startedMs) / 1000));
 }
 
 function BuildContent() {
@@ -88,6 +97,8 @@ function BuildContent() {
   const [landingHtml, setLandingHtml] = useState("");
   const [appHtml, setAppHtml] = useState("");
   const [tabNotice, setTabNotice] = useState("");
+  const [startedAt, setStartedAt] = useState("");
+  const [completedAt, setCompletedAt] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const codeContainerRef = useRef<HTMLDivElement>(null);
   const resetOnNextStreamRef = useRef(forceFlag);
@@ -107,7 +118,9 @@ function BuildContent() {
     setPhaseStatus(cached.phaseStatus || "idle");
     setLandingHtml(cached.landingHtml || "");
     setAppHtml(cached.appHtml || "");
-    setElapsed(cached.elapsed || 0);
+    setStartedAt(cached.startedAt || "");
+    setCompletedAt(cached.completedAt || "");
+    setElapsed(getElapsedFromTimestamps(cached.startedAt, cached.completedAt));
   }, [ideaId]);
 
   useEffect(() => {
@@ -123,19 +136,21 @@ function BuildContent() {
       phaseStatus,
       landingHtml,
       appHtml,
-      elapsed,
+      startedAt,
+      completedAt,
     };
     window.localStorage.setItem(getBuildCacheKey(ideaId), JSON.stringify(payload));
   }, [
     appHtml,
     buildDone,
     buildPhase,
-    elapsed,
     ideaId,
     landingHtml,
     phaseStatus,
     previewMode,
+    completedAt,
     slug,
+    startedAt,
     statusMessage,
     streamTab,
     title,
@@ -158,10 +173,15 @@ function BuildContent() {
   }, [landingHtml, appHtml, streamTab, streaming]);
 
   useEffect(() => {
+    if (!startedAt) return;
+    setElapsed(getElapsedFromTimestamps(startedAt, completedAt));
     if (buildDone) return;
-    const timer = setInterval(() => setElapsed((v) => v + 1), 1000);
+    const timer = setInterval(
+      () => setElapsed(getElapsedFromTimestamps(startedAt, completedAt)),
+      1000
+    );
     return () => clearInterval(timer);
-  }, [buildDone]);
+  }, [buildDone, completedAt, startedAt]);
 
   const copyVisible = useCallback(async () => {
     const text = streamTab === "landing" ? landingHtml : appHtml;
@@ -219,6 +239,8 @@ function BuildContent() {
         setLandingHtml("");
         setAppHtml("");
         setElapsed(0);
+        setStartedAt("");
+        setCompletedAt("");
         setStreamTab("landing");
         setPreviewMode("landing");
         setBuildPhase("boot");
@@ -281,8 +303,11 @@ function BuildContent() {
             setStatusMessage(payload.statusMessage || "Reconnecting to saved build...");
             setLandingHtml(payload.landingHtml || "");
             setAppHtml(payload.appHtml || "");
+            setStartedAt(payload.startedAt || "");
+            setCompletedAt(payload.completedAt || "");
             setBuildPhase(payload.buildPhase || "boot");
             setBuildDone(payload.status === "completed");
+            setElapsed(getElapsedFromTimestamps(payload.startedAt, payload.completedAt));
             setPhaseStatus(
               payload.status === "completed"
                 ? "idle"
@@ -326,6 +351,9 @@ function BuildContent() {
             setTitle(payload.title || "Built app");
             setLandingHtml(payload.landingHtml || "");
             setAppHtml(payload.appHtml || "");
+            setStartedAt(payload.startedAt || "");
+            setCompletedAt(payload.completedAt || new Date().toISOString());
+            setElapsed(getElapsedFromTimestamps(payload.startedAt, payload.completedAt));
           }
 
           if (payload.type === "error") {

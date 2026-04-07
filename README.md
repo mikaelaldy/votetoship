@@ -103,7 +103,7 @@ ADMIN_TOKEN=your_admin_token
 
 Notes:
 
-- `ADMIN_TOKEN` is optional in practice because the server falls back to `mikacend-demo`.
+- `ADMIN_TOKEN` is optional.
 - `SUPABASE_SERVICE_ROLE_KEY` is required because all database access happens server-side through the admin client.
 
 ## Local setup
@@ -149,6 +149,10 @@ Open `/admin`, enter the admin token, and the browser stores it locally. After t
 - `lib/store.ts` currently has uncommitted local changes in this workspace. This README update does not alter that file.
 - `GET /api/health` only checks for presence and URL shape of required env vars. It does not verify database connectivity or make a live GLM request.
 - The build stream is capped by `export const maxDuration = 300` in `app/api/build/route.ts`.
+
+## Feedback
+
+If you have feedback, DM me on Twitter: [@mikaelbuilds](https://twitter.com/mikaelbuilds).
 
 ## Scripts
 
