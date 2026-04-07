@@ -56,6 +56,7 @@ export default function AppPage() {
     if (!app) return "";
     return mode === "landing" ? app.landing_html : app.app_html;
   }, [app, mode]);
+  const hasRenderableHtml = useMemo(() => activeHtml.trim().length > 0, [activeHtml]);
 
   const handleCopy = useCallback(async () => {
     if (!activeHtml) return;
@@ -143,13 +144,33 @@ export default function AppPage() {
         </div>
 
         <div className="mt-[14px] rounded-[10px] border overflow-hidden" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
-          <iframe
-            srcDoc={activeHtml}
-            sandbox="allow-scripts"
-            className="w-full border-none"
-            style={{ height: "680px" }}
-            title={`${app.title}-${mode}`}
-          />
+          {hasRenderableHtml ? (
+            <iframe
+              srcDoc={activeHtml}
+              sandbox="allow-scripts"
+              className="w-full border-none"
+              style={{ height: "680px" }}
+              title={`${app.title}-${mode}`}
+            />
+          ) : (
+            <div className="h-[680px] flex items-center justify-center p-[20px]">
+              <div className="text-center">
+                <p className="text-[15px] font-semibold" style={{ color: "#1B1B1B" }}>
+                  This output is empty.
+                </p>
+                <p className="text-[13px] mt-[6px]" style={{ color: "#797979" }}>
+                  The build may have failed before HTML was saved.
+                </p>
+                <Link
+                  href={`/build?ideaId=${encodeURIComponent(slug)}&forceRebuild=1`}
+                  className="inline-block mt-[12px] px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
+                  style={{ background: "#000001", color: "#fff" }}
+                >
+                  Rebuild this idea
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

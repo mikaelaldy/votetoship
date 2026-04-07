@@ -7,6 +7,7 @@ import {
   getActiveIdeas,
   getBuildByIdeaId,
   insertBuild,
+  restartBuild,
   slugify,
   touchBuild,
 } from "@/lib/store";
@@ -17,6 +18,58 @@ interface BuildPayload {
   reasoning: string;
   landingHtml: string;
   appHtml: string;
+}
+
+const STALE_BUILD_MS = 90_000;
+
+function isBuildPayload(value: unknown): value is BuildPayload {
+  if (!value || typeof value !== "object") return false;
+  const payload = value as Record<string, unknown>;
+  return (
+    typeof payload.reasoning === "string" &&
+    typeof payload.landingHtml === "string" &&
+    typeof payload.appHtml === "string"
+  );
+}
+
+function tryParseBuildPayload(raw: string): BuildPayload | null {
+  try {
+    const parsed = extractJSON<BuildPayload>(raw);
+    if (isBuildPayload(parsed)) return parsed;
+  } catch {
+    // fall through
+  }
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    try {
+      const parsed = JSON.parse(raw.slice(firstBrace, lastBrace + 1)) as unknown;
+      if (isBuildPayload(parsed)) return parsed;
+    } catch {
+      // fall through
+    }
+  }
+
+  return null;
+}
+
+async function repairBuildPayload(raw: string): Promise<BuildPayload | null> {
+  const repaired = await callGLM(
+    [
+      {
+        role: "system",
+        content:
+          "Return strict minified JSON only. Required keys: reasoning, landingHtml, appHtml. Do not include markdown fences.",
+      },
+      {
+        role: "user",
+        content: `Fix this model output into valid JSON with the required keys and keep best available HTML:\n\n${raw}`,
+      },
+    ],
+    0
+  );
+  return tryParseBuildPayload(repaired);
 }
 
 async function buildForIdea(params: {
@@ -59,15 +112,19 @@ async function buildForIdea(params: {
     {
       role: "system" as const,
       content:
-        "You are an expert web developer. Return only JSON with three fields: reasoning, landingHtml, appHtml. Both HTML fields must be complete standalone HTML docs using Tailwind CDN and vanilla JS, responsive for desktop and mobile, no external APIs.",
+        "You are an expert web developer. Output STRICT JSON only, no prose and no markdown fences. Required keys: reasoning, landingHtml, appHtml. Both HTML values must be complete standalone <!DOCTYPE html> documents using Tailwind CDN and vanilla JS, responsive desktop/mobile, no external APIs.",
     },
     {
       role: "user" as const,
-      content: `Build for this idea:\nTitle: ${params.title}\nDescription: ${params.description}\n\nRequirements:\n- landingHtml: marketing landing page for the idea\n- appHtml: interactive MVP app\n- reasoning: max 2 short sentences\n- Return strictly JSON with keys reasoning, landingHtml, appHtml`,
+      content: `Build for this idea:\nTitle: ${params.title}\nDescription: ${params.description}\n\nRequirements:\n- reasoning: max 2 short sentences\n- landingHtml: marketing landing page\n- appHtml: interactive MVP app\n- Return STRICT JSON object with exactly keys reasoning, landingHtml, appHtml\n- Do not output any thinking or commentary`,
     },
   ];
 
-  for await (const chunk of callGLMStream(codegenPrompt, 0.35)) {
+  for await (const chunk of callGLMStream(codegenPrompt, 0.35, {
+    includeReasoning: false,
+    timeoutMs: 120000,
+    maxOutputChars: 240000,
+  })) {
     fullText += chunk;
     params.controller.enqueue(params.send({ type: "code", content: chunk }));
 
@@ -81,15 +138,20 @@ async function buildForIdea(params: {
 
   await appendBuildStream(params.buildId, fullText);
 
-  let parsed: BuildPayload;
-  try {
-    parsed = extractJSON<BuildPayload>(fullText);
-  } catch {
-    const fallbackMatch = fullText.match(/\{[\s\S]*\}$/);
-    if (!fallbackMatch) {
-      throw new Error("Could not parse generated output into JSON payload");
-    }
-    parsed = JSON.parse(fallbackMatch[0]) as BuildPayload;
+  let parsed = tryParseBuildPayload(fullText);
+  if (!parsed) {
+    params.controller.enqueue(
+      params.send({ type: "status", message: "Repairing malformed model output..." })
+    );
+    parsed = await repairBuildPayload(fullText);
+  }
+
+  if (!parsed) {
+    throw new Error("Could not parse generated output into JSON payload");
+  }
+
+  if (!parsed.landingHtml.trim() || !parsed.appHtml.trim()) {
+    throw new Error("Generated payload is missing required HTML output");
   }
 
   await completeBuild({
@@ -171,6 +233,7 @@ async function followExistingBuild(params: {
 
 export async function GET(request: NextRequest) {
   const ideaId = request.nextUrl.searchParams.get("ideaId");
+  const forceRebuild = request.nextUrl.searchParams.get("forceRebuild") === "1";
   const encoder = new TextEncoder();
 
   const send = (data: Record<string, unknown>) =>
@@ -195,8 +258,11 @@ export async function GET(request: NextRequest) {
         }
 
         const existing = await getBuildByIdeaId(ideaId);
+        const isStaleBuilding =
+          existing?.status === "building" &&
+          Date.now() - Date.parse(existing.updated_at) > STALE_BUILD_MS;
 
-        if (existing?.status === "completed") {
+        if (existing?.status === "completed" && !forceRebuild) {
           controller.enqueue(
             send({
               type: "done",
@@ -212,11 +278,41 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        if (existing?.status === "building") {
+        if (existing?.status === "building" && !isStaleBuilding && !forceRebuild) {
           controller.enqueue(send({ type: "status", message: "Joining live build..." }));
           await followExistingBuild({ ideaId, controller, send });
           controller.close();
           return;
+        }
+
+        if (existing) {
+          if (existing.status === "building") {
+            await failBuild(
+              existing.id,
+              isStaleBuilding
+                ? "Build marked stale and restarted"
+                : "Build restarted by user",
+              existing.stream_text || ""
+            );
+          }
+          if (existing.status === "failed" || existing.status === "completed" || forceRebuild || isStaleBuilding) {
+            await restartBuild({
+              buildId: existing.id,
+              title: idea.title,
+              slug: ideaId || slugify(idea.title),
+            });
+            controller.enqueue(send({ type: "status", message: "Build restarted" }));
+            await buildForIdea({
+              ideaId,
+              title: idea.title,
+              description: idea.description,
+              buildId: existing.id,
+              controller,
+              send,
+            });
+            controller.close();
+            return;
+          }
         }
 
         const created = await insertBuild({
@@ -224,13 +320,7 @@ export async function GET(request: NextRequest) {
           title: idea.title,
           slug: ideaId || slugify(idea.title),
         });
-
-        if (!created) {
-          controller.enqueue(send({ type: "status", message: "Joining live build..." }));
-          await followExistingBuild({ ideaId, controller, send });
-          controller.close();
-          return;
-        }
+        if (!created) throw new Error("Could not initialize build record");
 
         controller.enqueue(send({ type: "status", message: "Build started" }));
 

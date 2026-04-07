@@ -256,6 +256,32 @@ export async function touchBuild(buildId: string) {
   if (error) throw error;
 }
 
+export async function restartBuild(params: {
+  buildId: string;
+  title: string;
+  slug: string;
+}) {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("builds")
+    .update({
+      title: params.title,
+      slug: params.slug,
+      status: "building",
+      error_message: null,
+      reasoning: "",
+      stream_text: "",
+      landing_html: "",
+      app_html: "",
+      started_at: nowIso(),
+      updated_at: nowIso(),
+      completed_at: null,
+    })
+    .eq("id", params.buildId);
+
+  if (error) throw error;
+}
+
 export async function listBuildHistory(limit = 50): Promise<BuildRecord[]> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase

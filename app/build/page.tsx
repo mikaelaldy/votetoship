@@ -14,6 +14,7 @@ function BuildContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const ideaId = searchParams.get("ideaId") || "";
+  const forceFlag = searchParams.get("forceRebuild") === "1";
 
   const [statusMessage, setStatusMessage] = useState("Initializing...");
   const [reasoning, setReasoning] = useState("");
@@ -23,6 +24,8 @@ function BuildContent() {
   const [elapsed, setElapsed] = useState(0);
   const [slug, setSlug] = useState("");
   const [title, setTitle] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [forceRebuild, setForceRebuild] = useState(forceFlag);
   const codeEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,7 +45,18 @@ function BuildContent() {
     }
 
     try {
-      const res = await fetch(`/api/build?ideaId=${encodeURIComponent(ideaId)}`, {
+      setBuildDone(false);
+      setError(null);
+      setStatusMessage("Initializing...");
+      setLiveCode("");
+      setReasoning("");
+      setElapsed(0);
+
+      const query = new URLSearchParams({
+        ideaId,
+        ...(forceRebuild ? { forceRebuild: "1" } : {}),
+      });
+      const res = await fetch(`/api/build?${query.toString()}`, {
         method: "GET",
       });
 
@@ -89,13 +103,14 @@ function BuildContent() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Build failed");
     }
-  }, [ideaId]);
+  }, [forceRebuild, ideaId]);
 
   useEffect(() => {
     startStream();
-  }, [startStream]);
+  }, [startStream, attempt]);
 
   const elapsedLabel = useMemo(() => formatElapsed(elapsed), [elapsed]);
+  const shortReasoning = useMemo(() => reasoning.trim().slice(0, 220), [reasoning]);
 
   return (
     <div className="min-h-dvh" style={{ background: "#F9F9F9" }}>
@@ -121,7 +136,8 @@ function BuildContent() {
             </p>
             {reasoning && (
               <p className="text-[14px] mt-[10px]" style={{ color: "#1B1B1B" }}>
-                {reasoning}
+                {shortReasoning}
+                {reasoning.length > shortReasoning.length ? "..." : ""}
               </p>
             )}
           </div>
@@ -133,6 +149,28 @@ function BuildContent() {
         {error && (
           <div className="mt-[16px] rounded-[8px] border p-[14px]" style={{ borderColor: "#b91c1c", background: "#fff" }}>
             <p style={{ color: "#b91c1c" }}>{error}</p>
+            <div className="mt-[10px] flex items-center gap-[10px]">
+              <button
+                onClick={() => {
+                  setForceRebuild(false);
+                  setAttempt((v) => v + 1);
+                }}
+                className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold"
+                style={{ background: "#000001", color: "#fff" }}
+              >
+                Retry build
+              </button>
+              <button
+                onClick={() => {
+                  setForceRebuild(true);
+                  setAttempt((v) => v + 1);
+                }}
+                className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold border"
+                style={{ borderColor: "#C8CDD1", background: "#fff", color: "#1B1B1B" }}
+              >
+                Force rebuild
+              </button>
+            </div>
           </div>
         )}
 
@@ -148,6 +186,31 @@ function BuildContent() {
             <div ref={codeEndRef} />
           </div>
         </div>
+
+        {!buildDone && !error && (
+          <div className="mt-[12px] flex items-center gap-[10px]">
+            <button
+              onClick={() => {
+                setForceRebuild(false);
+                setAttempt((v) => v + 1);
+              }}
+              className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold border"
+              style={{ borderColor: "#C8CDD1", background: "#fff", color: "#1B1B1B" }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => {
+                setForceRebuild(true);
+                setAttempt((v) => v + 1);
+              }}
+              className="px-[14px] py-[8px] rounded-[18px] text-[13px] font-semibold border"
+              style={{ borderColor: "#C8CDD1", background: "#fff", color: "#1B1B1B" }}
+            >
+              Force rebuild
+            </button>
+          </div>
+        )}
 
         {buildDone && (
           <div className="mt-[16px] flex items-center gap-[12px]">
