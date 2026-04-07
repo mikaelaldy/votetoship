@@ -90,6 +90,7 @@ async function buildForIdea(params: {
   abortSignal?: AbortSignal;
 }) {
   let fullText = "";
+  let lastPersistedLen = 0;
   let lastPersistedAt = Date.now();
 
   params.controller.enqueue(
@@ -145,14 +146,18 @@ async function buildForIdea(params: {
     }
 
     const now = Date.now();
-    if (now - lastPersistedAt > 1200) {
-      await appendBuildStream(params.buildId, fullText);
+    if (now - lastPersistedAt > 2000 && fullText.length > lastPersistedLen) {
+      const delta = fullText.slice(lastPersistedLen);
+      lastPersistedLen = fullText.length;
+      await appendBuildStream(params.buildId, delta);
       await touchBuild(params.buildId);
       lastPersistedAt = now;
     }
   }
 
-  await appendBuildStream(params.buildId, fullText);
+  if (fullText.length > lastPersistedLen) {
+    await appendBuildStream(params.buildId, fullText.slice(lastPersistedLen));
+  }
 
   let parsed = tryParseBuildPayload(fullText);
   if (!parsed) {

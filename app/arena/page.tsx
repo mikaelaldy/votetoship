@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -65,6 +65,8 @@ function ArenaContent() {
   const [dragX, setDragX] = useState(0);
   const pointerStart = useRef<number | null>(null);
   const activePointerId = useRef<number | null>(null);
+  const votesRef = useRef<Record<string, VoteData>>({});
+  const pollActiveRef = useRef(true);
 
   const fetchAll = useCallback(async () => {
     const [ideasRes, votesRes] = await Promise.all([
@@ -77,7 +79,9 @@ function ArenaContent() {
 
     const nextIdeas = shuffleIdeas(ideasData.ideas || []);
     setIdeas(nextIdeas);
-    setVotes(votesData.votes || {});
+    const freshVotes = votesData.votes || {};
+    votesRef.current = freshVotes;
+    setVotes(freshVotes);
     const currentIds = new Set(nextIdeas.map((idea: Idea) => idea.id));
     setVoted((prev) => {
       const filtered = new Set([...prev].filter((id) => currentIds.has(id)));
@@ -109,14 +113,23 @@ function ArenaContent() {
   }, [fetchAll, shouldReset, router]);
 
   useEffect(() => {
-    const poll = setInterval(() => {
-      fetch("/api/vote", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d) => setVotes(d.votes || {}))
-        .catch(() => undefined);
-    }, 2500);
+    pollActiveRef.current = true;
+    const poll = setInterval(async () => {
+      if (!pollActiveRef.current) return;
+      try {
+        const r = await fetch("/api/vote", { cache: "no-store" });
+        const d = await r.json();
+        votesRef.current = d.votes || {};
+        setVotes(votesRef.current);
+      } catch {
+        // ignore
+      }
+    }, 3000);
 
-    return () => clearInterval(poll);
+    return () => {
+      pollActiveRef.current = false;
+      clearInterval(poll);
+    };
   }, []);
 
   const pendingIdeas = useMemo(
@@ -139,7 +152,9 @@ function ArenaContent() {
       if (!res.ok) return;
 
       const data = await res.json();
-      setVotes(data.votes || {});
+      const freshVotes = data.votes || {};
+      votesRef.current = freshVotes;
+      setVotes(freshVotes);
       const next = new Set(voted);
       next.add(ideaId);
       setVoted(next);
@@ -158,7 +173,6 @@ function ArenaContent() {
 
   const handlePointerMove = (pointerId: number, x: number) => {
     if (pointerStart.current === null || activePointerId.current !== pointerId) return;
-    // Keep swipe movement bounded so card stays controllable on long drags.
     setDragX(Math.max(-180, Math.min(180, x - pointerStart.current)));
   };
 
@@ -202,7 +216,6 @@ function ArenaContent() {
 
   useEffect(() => {
     if (loading || refilling) return;
-    // Keep swipe flow almost infinite by refilling before user hits empty state.
     if (pendingIdeas.length > 2) return;
 
     (async () => {

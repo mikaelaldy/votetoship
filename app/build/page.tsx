@@ -6,8 +6,17 @@ import Link from "next/link";
 import { JetBrains_Mono } from "next/font/google";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import dynamic from "next/dynamic";
+
+const SyntaxHighlighter = dynamic(
+  () => import("react-syntax-highlighter").then((mod) => mod.Prism),
+  { ssr: false }
+);
+
+let oneDark: React.ComponentProps<typeof SyntaxHighlighter>["style"];
+import("react-syntax-highlighter/dist/esm/styles/prism").then((mod) => {
+  oneDark = mod.oneDark;
+});
 
 const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
@@ -58,6 +67,42 @@ function tryParsePayload(raw: string): {
   return null;
 }
 
+function useThrottledState<T>(initial: T, ms: number): [T, (next: T | ((prev: T) => T)) => void, T] {
+  const [flushed, setFlushed] = useState<T>(initial);
+  const pendingRef = useRef<T>(initial);
+  const rafRef = useRef<number | null>(null);
+  const lastFlushRef = useRef(0);
+
+  const flush = useCallback(() => {
+    const now = performance.now();
+    if (now - lastFlushRef.current < ms) {
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          lastFlushRef.current = performance.now();
+          setFlushed(pendingRef.current);
+        });
+      }
+      return;
+    }
+    lastFlushRef.current = now;
+    setFlushed(pendingRef.current);
+  }, [ms]);
+
+  const set = useCallback(
+    (next: T | ((prev: T) => T)) => {
+      pendingRef.current =
+        typeof next === "function"
+          ? (next as (prev: T) => T)(pendingRef.current)
+          : next;
+      flush();
+    },
+    [flush]
+  );
+
+  return [flushed, set, pendingRef.current];
+}
+
 function BuildContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,7 +112,7 @@ function BuildContent() {
   const [statusMessage, setStatusMessage] = useState("Initializing...");
   const [planMarkdown, setPlanMarkdown] = useState("");
   const [codegenThinking, setCodegenThinking] = useState("");
-  const [liveCode, setLiveCode] = useState("");
+  const [displayCode, setDisplayCode] = useThrottledState("", 400);
   const [buildDone, setBuildDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -83,10 +128,30 @@ function BuildContent() {
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const codeEndRef = useRef<HTMLDivElement>(null);
+  const liveCodeRef = useRef("");
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedScroll = useCallback(() => {
+    if (scrollTimerRef.current !== null) return;
+    scrollTimerRef.current = setTimeout(() => {
+      scrollTimerRef.current = null;
+      codeEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 300);
+  }, []);
 
   useEffect(() => {
-    codeEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [liveCode, codegenThinking, streamTab]);
+    if (!streaming) {
+      codeEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    } else {
+      debouncedScroll();
+    }
+  }, [displayCode, codegenThinking, streamTab, streaming, debouncedScroll]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimerRef.current !== null) clearTimeout(scrollTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (buildDone) return;
@@ -94,10 +159,10 @@ function BuildContent() {
     return () => clearInterval(timer);
   }, [buildDone]);
 
-  const parsedStream = useMemo(() => tryParsePayload(liveCode), [liveCode]);
+  const parsedStream = useMemo(() => tryParsePayload(displayCode), [displayCode]);
 
   const prettyJson = useMemo(() => {
-    const parsed = tryParsePayload(liveCode);
+    const parsed = tryParsePayload(displayCode);
     if (!parsed) return null;
     try {
       return JSON.stringify(
@@ -112,11 +177,11 @@ function BuildContent() {
     } catch {
       return null;
     }
-  }, [liveCode]);
+  }, [displayCode]);
 
   const displayForTab = useMemo(() => {
-    if (streamTab === "raw") return liveCode;
-    if (streamTab === "pretty") return prettyJson ?? liveCode;
+    if (streamTab === "raw") return displayCode;
+    if (streamTab === "pretty") return prettyJson ?? displayCode;
     if (streamTab === "jsonReasoning") {
       const r = donePayload?.reasoning ?? parsedStream?.reasoning;
       if (!r) return "";
@@ -129,7 +194,7 @@ function BuildContent() {
       return donePayload?.appHtml ?? parsedStream?.appHtml ?? "";
     }
     return "";
-  }, [streamTab, liveCode, prettyJson, donePayload, parsedStream]);
+  }, [streamTab, displayCode, prettyJson, donePayload, parsedStream]);
 
   const languageForTab = useMemo<"json" | "markup">(() => {
     if (streamTab === "pretty" || streamTab === "raw") return "json";
@@ -138,15 +203,15 @@ function BuildContent() {
   }, [streamTab]);
 
   const copyVisible = useCallback(async () => {
-    const text = displayForTab;
+    const text = liveCodeRef.current;
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
-  }, [displayForTab]);
+  }, []);
 
   const downloadVisible = useCallback(() => {
-    const text = displayForTab;
+    const text = liveCodeRef.current;
     if (!text) return;
     const ext =
       streamTab === "landing" || streamTab === "app"
@@ -163,7 +228,7 @@ function BuildContent() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [displayForTab, streamTab, ideaId]);
+  }, [streamTab, ideaId]);
 
   const startStream = useCallback(async () => {
     if (!ideaId) {
@@ -181,7 +246,8 @@ function BuildContent() {
       setStatusMessage("Initializing...");
       setPlanMarkdown("");
       setCodegenThinking("");
-      setLiveCode("");
+      liveCodeRef.current = "";
+      setDisplayCode("");
       setDonePayload(null);
       setElapsed(0);
       setStreamTab("raw");
@@ -225,13 +291,17 @@ function BuildContent() {
           if (payload.type === "thinking_delta") {
             setCodegenThinking((prev) => prev + (payload.content || ""));
           }
-          if (payload.type === "code") setLiveCode((prev) => prev + (payload.content || ""));
+          if (payload.type === "code") {
+            liveCodeRef.current += payload.content || "";
+            setDisplayCode(liveCodeRef.current);
+          }
 
           if (payload.type === "done") {
             setBuildDone(true);
             setStatusMessage(payload.cached ? "Loaded from cache" : "Build complete");
             setSlug(payload.slug || ideaId);
             setTitle(payload.title || "Built app");
+            setDisplayCode(liveCodeRef.current);
             setDonePayload({
               slug: payload.slug,
               title: payload.title,
@@ -263,7 +333,7 @@ function BuildContent() {
     } finally {
       setStreaming(false);
     }
-  }, [forceRebuild, ideaId]);
+  }, [forceRebuild, ideaId, setDisplayCode]);
 
   useEffect(() => {
     startStream();
@@ -444,7 +514,7 @@ function BuildContent() {
               <p className="p-[14px] text-[13px]" style={{ color: "#9ca3af" }}>
                 HTML is available once the model finishes the JSON object or when the build completes.
               </p>
-            ) : (
+            ) : oneDark ? (
               <SyntaxHighlighter
                 language={languageForTab}
                 style={oneDark}
@@ -460,6 +530,13 @@ function BuildContent() {
               >
                 {`${displayForTab}${!buildDone && !error && streamTab === "raw" ? "▋" : ""}`}
               </SyntaxHighlighter>
+            ) : (
+              <pre
+                className="p-[14px] text-[12px] leading-[1.5] whitespace-pre-wrap"
+                style={{ color: "#e5e7eb" }}
+              >
+                {`${displayForTab}${!buildDone && !error && streamTab === "raw" ? "▋" : ""}`}
+              </pre>
             )}
             <div ref={codeEndRef} />
           </div>

@@ -200,12 +200,18 @@ export async function insertBuild(input: {
 
 export async function appendBuildStream(buildId: string, streamText: string) {
   const supabase = getSupabaseAdmin();
-  const { error } = await supabase
-    .from("builds")
-    .update({ stream_text: streamText, updated_at: nowIso() })
-    .eq("id", buildId);
+  const { error } = await supabase.rpc("append_build_stream", {
+    p_build_id: buildId,
+    p_delta: streamText,
+  });
 
-  if (error) throw error;
+  if (error) {
+    const { error: fallbackError } = await supabase
+      .from("builds")
+      .update({ stream_text: streamText, updated_at: nowIso() })
+      .eq("id", buildId);
+    if (fallbackError) throw fallbackError;
+  }
 }
 
 export async function completeBuild(params: {
