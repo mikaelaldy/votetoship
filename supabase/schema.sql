@@ -48,3 +48,13 @@ create index if not exists idx_ideas_battle_id on ideas(battle_id);
 create index if not exists idx_votes_idea_id on votes(idea_id);
 create index if not exists idx_builds_status on builds(status);
 create index if not exists idx_builds_completed_at on builds(completed_at desc);
+
+create or replace function append_build_stream(p_build_id text, p_delta text)
+returns void as $$
+begin
+  update builds
+  set stream_text = stream_text || p_delta,
+      updated_at = now()
+  where id = p_build_id;
+end;
+$$ language plpgsql;

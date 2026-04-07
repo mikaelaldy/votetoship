@@ -67,7 +67,7 @@ function tryParsePayload(raw: string): {
   return null;
 }
 
-function useThrottledState<T>(initial: T, ms: number): [T, (next: T | ((prev: T) => T)) => void, T] {
+function useThrottledState<T>(initial: T, ms: number): [T, (next: T | ((prev: T) => T)) => void] {
   const [flushed, setFlushed] = useState<T>(initial);
   const pendingRef = useRef<T>(initial);
   const rafRef = useRef<number | null>(null);
@@ -100,7 +100,7 @@ function useThrottledState<T>(initial: T, ms: number): [T, (next: T | ((prev: T)
     [flush]
   );
 
-  return [flushed, set, pendingRef.current];
+  return [flushed, set];
 }
 
 function BuildContent() {
