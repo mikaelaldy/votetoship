@@ -103,7 +103,7 @@ ADMIN_TOKEN=your_admin_token
 
 Notes:
 
-- `ADMIN_TOKEN` is optional.
+- `ADMIN_TOKEN` is required for admin features.
 - `SUPABASE_SERVICE_ROLE_KEY` is required because all database access happens server-side through the admin client.
 
 ## Local setup
