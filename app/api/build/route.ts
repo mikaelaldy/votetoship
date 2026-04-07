@@ -1,83 +1,126 @@
-﻿import { NextRequest } from "next/server";
-import { callGLM, callGLMStreamTagged, extractJSON } from "@/lib/glm";
+import { NextRequest } from "next/server";
+import { isAdminRequest } from "@/lib/admin";
+import { BUILD_UPVOTE_THRESHOLD } from "@/lib/constants";
+import { callGLMStream } from "@/lib/glm";
 import {
-  appendBuildStream,
   completeBuild,
   failBuild,
   getActiveIdeas,
   getBuildByIdeaId,
+  getVoteMap,
   insertBuild,
   restartBuild,
   slugify,
-  touchBuild,
+  updateBuildOutputs,
 } from "@/lib/store";
 
 export const maxDuration = 300;
 
-interface BuildPayload {
-  reasoning: string;
-  landingHtml: string;
-  appHtml: string;
-}
-
 const STALE_BUILD_MS = 90_000;
-
-function isBuildPayload(value: unknown): value is BuildPayload {
-  if (!value || typeof value !== "object") return false;
-  const payload = value as Record<string, unknown>;
-  return (
-    typeof payload.reasoning === "string" &&
-    typeof payload.landingHtml === "string" &&
-    typeof payload.appHtml === "string"
-  );
-}
-
-function tryParseBuildPayload(raw: string): BuildPayload | null {
-  try {
-    const parsed = extractJSON<BuildPayload>(raw);
-    if (isBuildPayload(parsed)) return parsed;
-  } catch {
-    // fall through
-  }
-
-  const firstBrace = raw.indexOf("{");
-  const lastBrace = raw.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    try {
-      const parsed = JSON.parse(raw.slice(firstBrace, lastBrace + 1)) as unknown;
-      if (isBuildPayload(parsed)) return parsed;
-    } catch {
-      // fall through
-    }
-  }
-
-  return null;
-}
-
-async function repairBuildPayload(raw: string, signal?: AbortSignal): Promise<BuildPayload | null> {
-  const repaired = await callGLM(
-    [
-      {
-        role: "system",
-        content:
-          "Return strict minified JSON only. Required keys: reasoning, landingHtml, appHtml. Do not include markdown fences.",
-      },
-      {
-        role: "user",
-        content: `Fix this model output into valid JSON with the required keys and keep best available HTML:\n\n${raw}`,
-      },
-    ],
-    0,
-    { signal }
-  );
-  return tryParseBuildPayload(repaired);
-}
 
 function isAbortError(error: unknown): boolean {
   return (
     (error instanceof DOMException && error.name === "AbortError") ||
     (error instanceof Error && error.name === "AbortError")
   );
+}
+
+function buildReasoning(title: string, description: string) {
+  return `${title} becomes a focused landing page and a lightweight MVP for: ${description}`;
+}
+
+async function streamHtmlDocument(params: {
+  kind: "landing" | "app";
+  title: string;
+  description: string;
+  buildId: string;
+  controller: ReadableStreamDefaultController<Uint8Array>;
+  send: (data: Record<string, unknown>) => Uint8Array;
+  abortSignal?: AbortSignal;
+}) {
+  const currentText = { value: "" };
+
+  params.controller.enqueue(params.send({ type: "phase", phase: params.kind }));
+  params.controller.enqueue(
+    params.send({
+      type: "status",
+      message:
+        params.kind === "landing"
+          ? "Generating landing page HTML first..."
+          : "Landing page done. Generating MVP app HTML...",
+    })
+  );
+
+  const prompt =
+    params.kind === "landing"
+      ? `Build a responsive marketing landing page for this idea.
+Title: ${params.title}
+Description: ${params.description}
+
+Requirements:
+- Return only a complete standalone HTML document starting with <!DOCTYPE html>
+- Use Tailwind via CDN and vanilla JavaScript only
+- Keep it polished, conversion-focused, and mobile friendly
+- Include hero, value props, feature section, workflow section, CTA, and footer
+- No markdown fences, no commentary, no JSON`
+      : `Build a responsive MVP web app for this idea.
+Title: ${params.title}
+Description: ${params.description}
+
+Requirements:
+- Return only a complete standalone HTML document starting with <!DOCTYPE html>
+- Use Tailwind via CDN and vanilla JavaScript only
+- Build a realistic single-page product interface with working demo interactions
+- Include clear forms, lists, states, and empty/loading/error treatments where appropriate
+- No markdown fences, no commentary, no JSON`;
+
+  for await (const chunk of callGLMStream(
+    [
+      {
+        role: "system",
+        content:
+          "You are an expert web developer. Return only valid standalone HTML. Do not include analysis, thinking, markdown fences, or any text before or after the HTML document.",
+      },
+      {
+        role: "user",
+        content: prompt,
+      },
+    ],
+    0.15,
+    {
+      timeoutMs: 120000,
+      maxOutputChars: 180000,
+      signal: params.abortSignal,
+    }
+  )) {
+    currentText.value += chunk;
+    params.controller.enqueue(
+      params.send({
+        type: params.kind === "landing" ? "landing_chunk" : "app_chunk",
+        content: chunk,
+      })
+    );
+
+    await updateBuildOutputs({
+      buildId: params.buildId,
+      landingHtml: params.kind === "landing" ? currentText.value : undefined,
+      appHtml: params.kind === "app" ? currentText.value : undefined,
+      streamText: currentText.value,
+      reasoning: buildReasoning(params.title, params.description),
+    });
+  }
+
+  if (!currentText.value.trim().startsWith("<!DOCTYPE html")) {
+    throw new Error(`${params.kind} build did not return a standalone HTML document`);
+  }
+
+  params.controller.enqueue(
+    params.send({
+      type: params.kind === "landing" ? "landing_done" : "app_done",
+    })
+  );
+
+  return currentText.value;
 }
 
 async function buildForIdea(params: {
@@ -89,98 +132,34 @@ async function buildForIdea(params: {
   send: (data: Record<string, unknown>) => Uint8Array;
   abortSignal?: AbortSignal;
 }) {
-  let fullText = "";
-  let lastPersistedLen = 0;
-  let lastPersistedAt = Date.now();
+  const reasoning = buildReasoning(params.title, params.description);
 
-  params.controller.enqueue(
-    params.send({ type: "analysis", message: "Preparing concise build plan..." })
-  );
+  const landingHtml = await streamHtmlDocument({
+    kind: "landing",
+    title: params.title,
+    description: params.description,
+    buildId: params.buildId,
+    controller: params.controller,
+    send: params.send,
+    abortSignal: params.abortSignal,
+  });
 
-  const reasoningRaw = await callGLM(
-    [
-      {
-        role: "system",
-        content:
-          "You write a short build plan in Markdown only. Use headings (##), bullet lists, and bold for emphasis. No code fences. Keep it scannable and practical.",
-      },
-      {
-        role: "user",
-        content: `Idea:\nTitle: ${params.title}\nDescription: ${params.description}\n\nProduce Markdown with:\n## Plan\n- **Landing page:** ...\n- **MVP app:** ...\nKeep each bullet to 1–2 sentences.`,
-      },
-    ],
-    0.2,
-    { signal: params.abortSignal }
-  );
-
-  params.controller.enqueue(params.send({ type: "reasoning", content: reasoningRaw }));
-
-  params.controller.enqueue(
-    params.send({ type: "status", message: "Generating landing + MVP HTML..." })
-  );
-
-  const codegenPrompt = [
-    {
-      role: "system" as const,
-      content:
-        "You are an expert web developer. Output STRICT JSON only, no prose and no markdown fences. Required keys: reasoning, landingHtml, appHtml. Both HTML values must be complete standalone <!DOCTYPE html> documents using Tailwind CDN and vanilla JS, responsive desktop/mobile, no external APIs.",
-    },
-    {
-      role: "user" as const,
-      content: `Build for this idea:\nTitle: ${params.title}\nDescription: ${params.description}\n\nRequirements:\n- reasoning: max 2 short sentences\n- landingHtml: marketing landing page\n- appHtml: interactive MVP app\n- Return STRICT JSON object with exactly keys reasoning, landingHtml, appHtml\n- Do not output any thinking or commentary`,
-    },
-  ];
-
-  for await (const chunk of callGLMStreamTagged(codegenPrompt, 0.35, {
-    timeoutMs: 120000,
-    maxOutputChars: 240000,
-    signal: params.abortSignal,
-  })) {
-    if (chunk.kind === "reasoning") {
-      params.controller.enqueue(
-        params.send({ type: "thinking_delta", content: chunk.text })
-      );
-    } else {
-      fullText += chunk.text;
-      params.controller.enqueue(params.send({ type: "code", content: chunk.text }));
-    }
-
-    const now = Date.now();
-    if (now - lastPersistedAt > 2000 && fullText.length > lastPersistedLen) {
-      const delta = fullText.slice(lastPersistedLen);
-      lastPersistedLen = fullText.length;
-      await appendBuildStream(params.buildId, delta);
-      await touchBuild(params.buildId);
-      lastPersistedAt = now;
-    }
-  }
-
-  if (fullText.length > lastPersistedLen) {
-    await appendBuildStream(params.buildId, fullText.slice(lastPersistedLen));
-  }
-
-  let parsed = tryParseBuildPayload(fullText);
-  if (!parsed) {
-    params.controller.enqueue(
-      params.send({ type: "status", message: "Repairing malformed model output..." })
-    );
-    parsed = await repairBuildPayload(fullText, params.abortSignal);
-  }
-
-  if (!parsed) {
-    throw new Error("Could not parse generated output into JSON payload");
-  }
-
-  if (!parsed.landingHtml.trim() || !parsed.appHtml.trim()) {
-    throw new Error("Generated payload is missing required HTML output");
-  }
+  const appHtml = await streamHtmlDocument({
+    kind: "app",
+    title: params.title,
+    description: params.description,
+    buildId: params.buildId,
+    controller: params.controller,
+    send: params.send,
+    abortSignal: params.abortSignal,
+  });
 
   await completeBuild({
     buildId: params.buildId,
-    reasoning: parsed.reasoning || reasoningRaw,
-    landingHtml: parsed.landingHtml,
-    appHtml: parsed.appHtml,
-    streamText: fullText,
+    reasoning,
+    landingHtml,
+    appHtml,
+    streamText: `${landingHtml}\n\n${appHtml}`,
   });
 
   params.controller.enqueue(
@@ -188,9 +167,9 @@ async function buildForIdea(params: {
       type: "done",
       slug: params.ideaId,
       title: params.title,
-      reasoning: parsed.reasoning || reasoningRaw,
-      landingHtml: parsed.landingHtml,
-      appHtml: parsed.appHtml,
+      reasoning,
+      landingHtml,
+      appHtml,
     })
   );
 }
@@ -201,7 +180,9 @@ async function followExistingBuild(params: {
   send: (data: Record<string, unknown>) => Uint8Array;
   abortSignal?: AbortSignal;
 }) {
-  let sent = 0;
+  let sentLanding = 0;
+  let sentApp = 0;
+  let lastPhase: "landing" | "app" | "done" | null = null;
   let attempts = 0;
 
   while (attempts < 240) {
@@ -211,6 +192,7 @@ async function followExistingBuild(params: {
       );
       return;
     }
+
     const current = await getBuildByIdeaId(params.ideaId);
     if (!current) {
       params.controller.enqueue(
@@ -219,11 +201,39 @@ async function followExistingBuild(params: {
       return;
     }
 
-    const stream = current.stream_text || "";
-    if (stream.length > sent) {
-      const delta = stream.slice(sent);
-      sent = stream.length;
-      params.controller.enqueue(params.send({ type: "code", content: delta }));
+    const phase: "landing" | "app" | "done" =
+      current.status === "completed"
+        ? "done"
+        : current.app_html
+          ? "app"
+          : "landing";
+
+    if (phase !== lastPhase) {
+      params.controller.enqueue(params.send({ type: "phase", phase }));
+      params.controller.enqueue(
+        params.send({
+          type: "status",
+          message:
+            phase === "landing"
+              ? "Generating landing page HTML first..."
+              : phase === "app"
+                ? "Landing page done. Generating MVP app HTML..."
+                : "Build complete",
+        })
+      );
+      lastPhase = phase;
+    }
+
+    if (current.landing_html.length > sentLanding) {
+      const delta = current.landing_html.slice(sentLanding);
+      sentLanding = current.landing_html.length;
+      params.controller.enqueue(params.send({ type: "landing_chunk", content: delta }));
+    }
+
+    if (current.app_html.length > sentApp) {
+      const delta = current.app_html.slice(sentApp);
+      sentApp = current.app_html.length;
+      params.controller.enqueue(params.send({ type: "app_chunk", content: delta }));
     }
 
     if (current.status === "completed") {
@@ -263,6 +273,7 @@ export async function GET(request: NextRequest) {
   const ideaId = request.nextUrl.searchParams.get("ideaId");
   const forceRebuild = request.nextUrl.searchParams.get("forceRebuild") === "1";
   const abortSignal = request.signal;
+  const isAdmin = isAdminRequest(request);
   const encoder = new TextEncoder();
 
   const send = (data: Record<string, unknown>) =>
@@ -284,6 +295,21 @@ export async function GET(request: NextRequest) {
           controller.enqueue(send({ type: "error", message: "Idea not found" }));
           controller.close();
           return;
+        }
+
+        if (!isAdmin) {
+          const voteMap = await getVoteMap([ideaId]);
+          const upvotes = voteMap[ideaId]?.up || 0;
+          if (upvotes < BUILD_UPVOTE_THRESHOLD) {
+            controller.enqueue(
+              send({
+                type: "error",
+                message: `This idea needs ${BUILD_UPVOTE_THRESHOLD} Love votes before it can be built.`,
+              })
+            );
+            controller.close();
+            return;
+          }
         }
 
         const existing = await getBuildByIdeaId(ideaId);
@@ -321,10 +347,15 @@ export async function GET(request: NextRequest) {
               isStaleBuilding
                 ? "Build marked stale and restarted"
                 : "Build restarted by user",
-              existing.stream_text || ""
+              `${existing.landing_html || ""}\n\n${existing.app_html || ""}`
             );
           }
-          if (existing.status === "failed" || existing.status === "completed" || forceRebuild || isStaleBuilding) {
+          if (
+            existing.status === "failed" ||
+            existing.status === "completed" ||
+            forceRebuild ||
+            isStaleBuilding
+          ) {
             await restartBuild({
               buildId: existing.id,
               title: idea.title,
@@ -373,7 +404,7 @@ export async function GET(request: NextRequest) {
           await failBuild(
             existing.id,
             aborted ? "Stopped by user" : message,
-            existing.stream_text || ""
+            `${existing.landing_html || ""}\n\n${existing.app_html || ""}`
           );
         }
         controller.enqueue(

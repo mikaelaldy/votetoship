@@ -78,7 +78,7 @@ export async function POST() {
     let parsed: RawIdea[] = [];
 
     try {
-      const raw = await callGLM(buildIdeasPrompt(), 0.8);
+      const raw = await callGLM(buildIdeasPrompt(), 0.7, { model: "glm-4.7-flash" });
       parsed = extractJSON<RawIdea[]>(raw);
     } catch {
       parsed = fallbackIdeas();

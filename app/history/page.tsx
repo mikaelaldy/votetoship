@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import {
+  clearStoredAdminToken,
+  getStoredAdminToken,
+  setStoredAdminToken,
+} from "@/lib/admin-client";
 
 interface BuildRow {
   id: string;
@@ -30,20 +35,27 @@ function timeAgo(iso: string): string {
 export default function HistoryPage() {
   const [builds, setBuilds] = useState<BuildRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  const fetchBuilds = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/builds", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        setBuilds(data.builds || []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/builds", { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          setBuilds(data.builds || []);
-        }
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    setIsAdmin(Boolean(getStoredAdminToken()));
+    void fetchBuilds();
+  }, [fetchBuilds]);
 
   const { inProgress, failed, completed } = useMemo(() => {
     const inProgress = builds.filter((b) => b.status === "building");
@@ -51,6 +63,63 @@ export default function HistoryPage() {
     const completed = builds.filter((b) => b.status === "completed");
     return { inProgress, failed, completed };
   }, [builds]);
+
+  const toggleAdmin = async () => {
+    if (isAdmin) {
+      clearStoredAdminToken();
+      setIsAdmin(false);
+      setNotice("Admin mode turned off.");
+      return;
+    }
+
+    const token = window.prompt("Enter admin token");
+    if (!token) return;
+    const trimmed = token.trim();
+    setStoredAdminToken(trimmed);
+
+    const res = await fetch("/api/admin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": trimmed,
+      },
+      body: JSON.stringify({ action: "ping" }),
+    });
+
+    if (!res.ok) {
+      clearStoredAdminToken();
+      setNotice("Admin token was rejected.");
+      return;
+    }
+
+    setIsAdmin(true);
+    setNotice("Admin mode enabled.");
+  };
+
+  const deleteBuild = async (buildId: string) => {
+    setAdminBusy(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": getStoredAdminToken(),
+        },
+        body: JSON.stringify({ action: "deleteBuild", buildId }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNotice(data.error || "Could not remove build.");
+        return;
+      }
+
+      setBuilds((prev) => prev.filter((build) => build.id !== buildId));
+      setNotice("Build removed.");
+    } finally {
+      setAdminBusy(false);
+    }
+  };
 
   if (loading) return null;
 
@@ -61,9 +130,14 @@ export default function HistoryPage() {
           <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <Link href="/arena" className="pill-button pill-button-secondary">
-            Arena
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/arena" className="pill-button pill-button-secondary">
+              Arena
+            </Link>
+            <button onClick={() => void toggleAdmin()} className="pill-button pill-button-secondary">
+              {isAdmin ? "Admin on" : "Admin"}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -76,24 +150,37 @@ export default function HistoryPage() {
           See what is generating now, what failed, and finished apps you can open.
         </p>
 
+        {notice ? (
+          <div className="panel mt-4 p-4 text-sm text-[var(--color-text-secondary)]">
+            {notice}
+          </div>
+        ) : null}
+
         {inProgress.length > 0 ? (
           <section className="mt-8">
             <h2 className="text-xl font-bold text-[var(--color-text-primary)]">In progress</h2>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {inProgress.map((b) => (
-                <Link
-                  key={b.id}
-                  href={`/build?ideaId=${encodeURIComponent(b.idea_id)}`}
-                  className="panel block border-amber-300 bg-amber-50 p-5"
-                >
-                  <p className="eyebrow text-amber-700">Generating</p>
-                  <h3 className="mt-2 text-lg font-semibold text-[var(--color-text-primary)]">
-                    {b.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">
-                    Updated {timeAgo(b.updated_at)}. Open to watch the stream.
-                  </p>
-                </Link>
+                <div key={b.id} className="panel border-amber-300 bg-amber-50 p-5">
+                  <Link href={`/build?ideaId=${encodeURIComponent(b.idea_id)}`} className="block">
+                    <p className="eyebrow text-amber-700">Generating</p>
+                    <h3 className="mt-2 text-lg font-semibold text-[var(--color-text-primary)]">
+                      {b.title}
+                    </h3>
+                    <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                      Updated {timeAgo(b.updated_at)}. Open to watch the stream.
+                    </p>
+                  </Link>
+                  {isAdmin ? (
+                    <button
+                      onClick={() => void deleteBuild(b.id)}
+                      disabled={adminBusy}
+                      className="pill-button pill-button-secondary mt-4"
+                    >
+                      Remove build
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </div>
           </section>
@@ -111,12 +198,23 @@ export default function HistoryPage() {
                   <p className="mt-3 text-sm leading-6 text-red-700">
                     {b.error_message || "Build failed"}
                   </p>
-                  <Link
-                    href={`/build?ideaId=${encodeURIComponent(b.idea_id)}&forceRebuild=1`}
-                    className="pill-button pill-button-secondary mt-4"
-                  >
-                    Retry build
-                  </Link>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Link
+                      href={`/build?ideaId=${encodeURIComponent(b.idea_id)}&forceRebuild=1`}
+                      className="pill-button pill-button-secondary"
+                    >
+                      Retry build
+                    </Link>
+                    {isAdmin ? (
+                      <button
+                        onClick={() => void deleteBuild(b.id)}
+                        disabled={adminBusy}
+                        className="pill-button pill-button-secondary"
+                      >
+                        Remove build
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>
@@ -132,17 +230,28 @@ export default function HistoryPage() {
           ) : (
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {completed.map((app) => (
-                <Link key={app.id} href={`/app/${app.slug}`} className="panel block p-5">
-                  <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">
-                    {app.title}
-                  </h3>
-                  <p className="pretty mt-3 line-clamp-3 text-sm leading-6 text-[var(--color-text-secondary)]">
-                    {app.reasoning}
-                  </p>
-                  <p className="mt-4 text-sm tabular-nums text-[var(--color-text-tertiary)]">
-                    {app.completed_at ? timeAgo(app.completed_at) : ""}
-                  </p>
-                </Link>
+                <div key={app.id} className="panel p-5">
+                  <Link href={`/app/${app.slug}`} className="block">
+                    <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">
+                      {app.title}
+                    </h3>
+                    <p className="pretty mt-3 line-clamp-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                      {app.reasoning}
+                    </p>
+                    <p className="mt-4 text-sm tabular-nums text-[var(--color-text-tertiary)]">
+                      {app.completed_at ? timeAgo(app.completed_at) : ""}
+                    </p>
+                  </Link>
+                  {isAdmin ? (
+                    <button
+                      onClick={() => void deleteBuild(app.id)}
+                      disabled={adminBusy}
+                      className="pill-button pill-button-secondary mt-4"
+                    >
+                      Remove build
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </div>
           )}

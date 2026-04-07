@@ -1,0 +1,1 @@
+export const BUILD_UPVOTE_THRESHOLD = 5;

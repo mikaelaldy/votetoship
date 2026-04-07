@@ -3,6 +3,12 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  clearStoredAdminToken,
+  getStoredAdminToken,
+  setStoredAdminToken,
+} from "@/lib/admin-client";
+import { BUILD_UPVOTE_THRESHOLD } from "@/lib/constants";
 
 interface Idea {
   id: string;
@@ -55,6 +61,12 @@ function saveVotedIdeas(ids: Set<string>) {
   localStorage.setItem("vts_voted_ideas", JSON.stringify([...ids]));
 }
 
+function clearVotedIdeas() {
+  const empty = new Set<string>();
+  saveVotedIdeas(empty);
+  return empty;
+}
+
 function ArenaContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,11 +79,19 @@ function ArenaContent() {
   const [refilling, setRefilling] = useState(false);
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [notice, setNotice] = useState("");
   const pointerStartX = useRef<number | null>(null);
   const pointerStartY = useRef<number | null>(null);
   const activePointerId = useRef<number | null>(null);
   const votesRef = useRef<Record<string, VoteData>>({});
   const pollActiveRef = useRef(true);
+
+  const adminHeaders = useCallback((): Record<string, string> => {
+    const token = getStoredAdminToken();
+    return token ? { "x-admin-token": token } : {};
+  }, []);
 
   const fetchAll = useCallback(async () => {
     const [ideasRes, votesRes] = await Promise.all([
@@ -97,6 +117,7 @@ function ArenaContent() {
 
   useEffect(() => {
     setVoted(getVotedIdeas());
+    setIsAdmin(Boolean(getStoredAdminToken()));
   }, []);
 
   useEffect(() => {
@@ -105,9 +126,7 @@ function ArenaContent() {
       try {
         if (shouldReset) {
           await fetch("/api/ideas", { method: "POST" });
-          const empty = new Set<string>();
-          setVoted(empty);
-          saveVotedIdeas(empty);
+          setVoted(clearVotedIdeas());
           router.replace("/arena");
         }
         await fetchAll();
@@ -234,6 +253,8 @@ function ArenaContent() {
   }, [ideas, votes]);
 
   const swipeProgress = Math.min(1, Math.abs(dragX) / SWIPE_THRESHOLD);
+  const activeUpvotes = activeIdea ? votes[activeIdea.id]?.up || 0 : 0;
+  const canBuildActiveIdea = isAdmin || activeUpvotes >= BUILD_UPVOTE_THRESHOLD;
 
   useEffect(() => {
     if (loading || refilling) return;
@@ -244,15 +265,81 @@ function ArenaContent() {
       setIdeas([]);
       try {
         await fetch("/api/ideas", { method: "POST" });
-        const empty = new Set<string>();
-        setVoted(empty);
-        saveVotedIdeas(empty);
+        setVoted(clearVotedIdeas());
         await fetchAll();
       } finally {
         setRefilling(false);
       }
     })();
   }, [fetchAll, loading, pendingIdeas.length, refilling]);
+
+  const toggleAdmin = async () => {
+    if (isAdmin) {
+      clearStoredAdminToken();
+      setIsAdmin(false);
+      setNotice("Admin mode turned off.");
+      return;
+    }
+
+    const token = window.prompt("Enter admin token");
+    if (!token) return;
+
+    const trimmed = token.trim();
+    setStoredAdminToken(trimmed);
+    const res = await fetch("/api/admin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": trimmed,
+      },
+      body: JSON.stringify({ action: "ping" }),
+    });
+
+    if (!res.ok) {
+      clearStoredAdminToken();
+      setIsAdmin(false);
+      setNotice("Admin token was rejected.");
+      return;
+    }
+
+    setIsAdmin(true);
+    setNotice("Admin mode enabled.");
+  };
+
+  const runAdminAction = async (body: Record<string, string>) => {
+    setAdminBusy(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...adminHeaders(),
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNotice(data.error || "Admin action failed.");
+        return;
+      }
+
+      if (data.ideas) setIdeas(shuffleIdeas(data.ideas || []));
+      if (data.votes) {
+        votesRef.current = data.votes || {};
+        setVotes(votesRef.current);
+      }
+
+      if (body.action === "resetDemo") {
+        setVoted(clearVotedIdeas());
+        setNotice("Demo data reset. Fresh ideas loaded.");
+      }
+      if (body.action === "boostIdea") setNotice("Added one Love vote.");
+      if (body.action === "deleteIdea") setNotice("Idea removed.");
+    } finally {
+      setAdminBusy(false);
+    }
+  };
 
   if (loading) return null;
 
@@ -270,11 +357,24 @@ function ArenaContent() {
             <Link href="/history" className="pill-button pill-button-secondary">
               History
             </Link>
-            <button
-              onClick={() => router.push("/arena?reset=1")}
-              className="pill-button pill-button-secondary"
-            >
-              Reset
+            {isAdmin ? (
+              <button
+                onClick={() => void runAdminAction({ action: "resetDemo" })}
+                disabled={adminBusy}
+                className="pill-button pill-button-secondary"
+              >
+                Start over
+              </button>
+            ) : (
+              <button
+                onClick={() => router.push("/arena?reset=1")}
+                className="pill-button pill-button-secondary"
+              >
+                Reset
+              </button>
+            )}
+            <button onClick={() => void toggleAdmin()} className="pill-button pill-button-secondary">
+              {isAdmin ? "Admin on" : "Admin"}
             </button>
           </div>
         </div>
@@ -282,116 +382,160 @@ function ArenaContent() {
 
       <main className="app-container page-section">
         <section className="mx-auto max-w-[760px]">
-            <p className="eyebrow">Arena</p>
-            <h1 className="balance mt-4 text-[40px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[44px]">
-              Swipe to vote
-            </h1>
-            <p className="pretty mt-3 max-w-2xl text-base leading-7 text-[var(--color-text-secondary)] sm:text-lg">
-              Swipe left for X, swipe right for Love. Build any idea anytime.
-            </p>
+          <p className="eyebrow">Arena</p>
+          <h1 className="balance mt-4 text-[40px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[44px]">
+            Swipe to vote
+          </h1>
+          <p className="pretty mt-3 max-w-2xl text-base leading-7 text-[var(--color-text-secondary)] sm:text-lg">
+            Swipe left for X, swipe right for Love. Builds unlock at {BUILD_UPVOTE_THRESHOLD} Love votes.
+          </p>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-[var(--color-text-secondary)]">
-              <span className="panel px-4 py-2 shadow-none">{voted.size}/{ideas.length} voted</span>
-              <span className="panel px-4 py-2 shadow-none">{totalVotes} total votes</span>
-              {refilling ? <span className="panel px-4 py-2 shadow-none">Refreshing ideas...</span> : null}
+          <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-[var(--color-text-secondary)]">
+            <span className="panel px-4 py-2 shadow-none">{voted.size}/{ideas.length} voted</span>
+            <span className="panel px-4 py-2 shadow-none">{totalVotes} total votes</span>
+            {refilling ? <span className="panel px-4 py-2 shadow-none">Refreshing ideas...</span> : null}
+            {isAdmin ? <span className="panel px-4 py-2 shadow-none">Admin mode active</span> : null}
+          </div>
+
+          {notice ? (
+            <div className="panel mt-4 p-4 text-sm text-[var(--color-text-secondary)]">
+              {notice}
             </div>
+          ) : null}
 
-            <div className="mt-6 min-h-[360px]">
-              {refilling ? (
-                <div className="panel p-6">
-                  <p className="text-base text-[var(--color-text-secondary)]">
-                    Loading new ideas...
-                  </p>
-                </div>
-              ) : activeIdea ? (
-                <div className="relative">
-                  <div
-                    className="pointer-events-none absolute inset-x-0 top-4 z-10 flex items-center justify-between px-4"
-                    aria-hidden
+          <div className="mt-6 min-h-[360px]">
+            {refilling ? (
+              <div className="panel p-6">
+                <p className="text-base text-[var(--color-text-secondary)]">
+                  Loading new ideas...
+                </p>
+              </div>
+            ) : activeIdea ? (
+              <div className="relative">
+                <div
+                  className="pointer-events-none absolute inset-x-0 top-4 z-10 flex items-center justify-between px-4"
+                  aria-hidden
+                >
+                  <span
+                    className="rounded-[23px] border px-4 py-2 text-xs font-semibold uppercase"
+                    style={{
+                      opacity: dragX < 0 ? swipeProgress : 0.2,
+                      borderColor: "#C8CDD1",
+                      background: "#fff",
+                      color: "#7f1d1d",
+                    }}
                   >
-                    <span
-                      className="rounded-[23px] border px-4 py-2 text-xs font-semibold uppercase"
-                      style={{
-                        opacity: dragX < 0 ? swipeProgress : 0.2,
-                        borderColor: "#C8CDD1",
-                        background: "#fff",
-                        color: "#7f1d1d",
-                      }}
-                    >
-                      X
+                    X
+                  </span>
+                </div>
+
+                <div
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={(event) => void handlePointerEnd(event.pointerId)}
+                  onPointerCancel={() => resetPointerState()}
+                  onLostPointerCapture={() => resetPointerState()}
+                  className="panel relative select-none touch-pan-y p-6 sm:p-7"
+                  style={{
+                    transform: `translate3d(${dragX}px, 0, 0) rotate(${dragX / 20}deg)`,
+                    transition: isDragging ? "none" : "transform 160ms ease-out",
+                  }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <h2 className="balance text-[28px] font-bold leading-tight text-[var(--color-text-primary)]">
+                      {activeIdea.title}
+                    </h2>
+                    <span className="rounded-[23px] border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+                      {activeIdea.source === "user" ? "USER" : "AI"}
                     </span>
                   </div>
 
-                  <div
-                    onPointerDown={handlePointerDown}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={(event) => void handlePointerEnd(event.pointerId)}
-                    onPointerCancel={() => resetPointerState()}
-                    onLostPointerCapture={() => resetPointerState()}
-                    className="panel relative select-none touch-pan-y p-6 sm:p-7"
-                    style={{
-                      transform: `translate3d(${dragX}px, 0, 0) rotate(${dragX / 20}deg)`,
-                      transition: isDragging ? "none" : "transform 160ms ease-out",
-                    }}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <h2 className="balance text-[28px] font-bold leading-tight text-[var(--color-text-primary)]">
-                        {activeIdea.title}
-                      </h2>
-                      <span className="rounded-[23px] border border-[var(--color-border-default)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)]">
-                        {activeIdea.source === "user" ? "USER" : "AI"}
-                      </span>
-                    </div>
-
-                    <p className="pretty mt-4 text-base leading-7 text-[var(--color-text-secondary)] sm:text-[17px]">
-                      {activeIdea.description}
-                    </p>
-
-                    <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                      <button
-                        onClick={() => void submitVote(activeIdea.id, "down")}
-                        className="pill-button pill-button-secondary w-full"
-                      >
-                        X
-                      </button>
-                      <button
-                        onClick={() => void submitVote(activeIdea.id, "up")}
-                        className="pill-button pill-button-secondary w-full"
-                      >
-                        Love
-                      </button>
-                      <button
-                        onClick={() => router.push(`/build?ideaId=${activeIdea.id}`)}
-                        className="pill-button pill-button-primary w-full"
-                      >
-                        Build
-                      </button>
-                    </div>
-
-                    <p className="mt-4 text-sm text-[var(--color-text-tertiary)]">
-                      Drag at least {SWIPE_THRESHOLD}px to commit a swipe.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="panel p-6">
-                  <p className="text-base text-[var(--color-text-primary)]">
-                    You voted all ideas. You can still build any idea from the leaderboard.
+                  <p className="pretty mt-4 text-base leading-7 text-[var(--color-text-secondary)] sm:text-[17px]">
+                    {activeIdea.description}
                   </p>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <Link href="/leaderboard" className="pill-button pill-button-secondary">
-                      Open leaderboard
-                    </Link>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[var(--color-text-secondary)]">
+                    <span className="panel px-4 py-2 shadow-none">
+                      Love {activeUpvotes} / {BUILD_UPVOTE_THRESHOLD}
+                    </span>
+                    {!canBuildActiveIdea ? (
+                      <span className="panel px-4 py-2 shadow-none">
+                        Needs {BUILD_UPVOTE_THRESHOLD - activeUpvotes} more Love to unlock build
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
                     <button
-                      onClick={() => router.push("/arena?reset=1")}
-                      className="pill-button pill-button-primary"
+                      onClick={() => void submitVote(activeIdea.id, "down")}
+                      className="pill-button pill-button-secondary w-full"
                     >
-                      Start another round
+                      X
+                    </button>
+                    <button
+                      onClick={() => void submitVote(activeIdea.id, "up")}
+                      className="pill-button pill-button-secondary w-full"
+                    >
+                      Love
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!canBuildActiveIdea) {
+                          setNotice(`This idea needs ${BUILD_UPVOTE_THRESHOLD} Love votes before it can be built.`);
+                          return;
+                        }
+                        router.push(`/build?ideaId=${activeIdea.id}`);
+                      }}
+                      disabled={!canBuildActiveIdea}
+                      className="pill-button pill-button-primary w-full"
+                    >
+                      Build
                     </button>
                   </div>
+
+                  {isAdmin ? (
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        onClick={() => void runAdminAction({ action: "boostIdea", ideaId: activeIdea.id })}
+                        disabled={adminBusy}
+                        className="pill-button pill-button-secondary"
+                      >
+                        +1 Love
+                      </button>
+                      <button
+                        onClick={() => void runAdminAction({ action: "deleteIdea", ideaId: activeIdea.id })}
+                        disabled={adminBusy}
+                        className="pill-button pill-button-secondary"
+                      >
+                        Remove idea
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <p className="mt-4 text-sm text-[var(--color-text-tertiary)]">
+                    Drag at least {SWIPE_THRESHOLD}px to commit a swipe.
+                  </p>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="panel p-6">
+                <p className="text-base text-[var(--color-text-primary)]">
+                  You voted all ideas. You can still build unlocked ideas from the leaderboard.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Link href="/leaderboard" className="pill-button pill-button-secondary">
+                    Open leaderboard
+                  </Link>
+                  <button
+                    onClick={() => (isAdmin ? void runAdminAction({ action: "resetDemo" }) : router.push("/arena?reset=1"))}
+                    className="pill-button pill-button-primary"
+                  >
+                    Start another round
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       </main>
 
@@ -405,7 +549,15 @@ function ArenaContent() {
               rel="noreferrer"
               className="hover:text-[var(--color-text-primary)]"
             >
-              mikacend.xyz
+              made by mikacend
+            </a>
+            <a
+              href="https://twitter.com/mikaelbuilds"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-[var(--color-text-primary)]"
+            >
+              @mikaelbuilds
             </a>
           </div>
           <div className="flex flex-wrap items-center gap-4">

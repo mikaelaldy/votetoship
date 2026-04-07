@@ -1,4 +1,5 @@
 const GLM_API_URL = "https://api.z.ai/api/coding/paas/v4/chat/completions";
+const DEFAULT_GLM_MODEL = "GLM-5.1";
 
 interface GLMMessage {
   role: "system" | "user" | "assistant";
@@ -18,11 +19,13 @@ interface GLMStreamOptions {
   includeReasoning?: boolean;
   timeoutMs?: number;
   maxOutputChars?: number;
+  model?: string;
   /** When aborted (e.g. client disconnected), ongoing fetch/stream stops. */
   signal?: AbortSignal;
 }
 
 interface CallGLMOptions {
+  model?: string;
   signal?: AbortSignal;
 }
 
@@ -59,6 +62,7 @@ export async function callGLM(
 ): Promise<string> {
   const apiKey = process.env.GLM_API_KEY;
   if (!apiKey) throw new Error("GLM_API_KEY is not set");
+  const model = options.model ?? DEFAULT_GLM_MODEL;
 
   const merged = mergeFetchSignal(120000, options.signal);
 
@@ -72,7 +76,7 @@ export async function callGLM(
       },
       signal: merged.signal,
       body: JSON.stringify({
-        model: "GLM-5.1",
+        model,
         messages,
         temperature,
         max_tokens: 16384,
@@ -106,6 +110,7 @@ export async function* callGLMStream(
   const maxOutputChars = options.maxOutputChars ?? 220000;
   const apiKey = process.env.GLM_API_KEY;
   if (!apiKey) throw new Error("GLM_API_KEY is not set");
+  const model = options.model ?? DEFAULT_GLM_MODEL;
 
   const merged = mergeFetchSignal(timeoutMs, options.signal);
 
@@ -119,7 +124,7 @@ export async function* callGLMStream(
       },
       signal: merged.signal,
       body: JSON.stringify({
-        model: "GLM-5.1",
+        model,
         messages,
         temperature,
         max_tokens: 16384,
@@ -211,6 +216,7 @@ export async function* callGLMStreamTagged(
   const maxOutputChars = options.maxOutputChars ?? 240000;
   const apiKey = process.env.GLM_API_KEY;
   if (!apiKey) throw new Error("GLM_API_KEY is not set");
+  const model = options.model ?? DEFAULT_GLM_MODEL;
 
   const merged = mergeFetchSignal(timeoutMs, options.signal);
 
@@ -224,7 +230,7 @@ export async function* callGLMStreamTagged(
       },
       signal: merged.signal,
       body: JSON.stringify({
-        model: "GLM-5.1",
+        model,
         messages,
         temperature,
         max_tokens: 16384,

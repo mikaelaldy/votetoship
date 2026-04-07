@@ -1,6 +1,7 @@
 # VoteToShip
 
 VoteToShip is a public web app where AI proposes product ideas, users vote by swiping (`X` or `Love`), and anyone can instantly generate a working output for any idea.
+For the demo flow, an idea unlocks building after it reaches **5 Love votes**.
 Each build produces **two separate HTML deliverables**:
 1. `landing_html` (marketing page)
 2. `app_html` (interactive MVP)
@@ -15,8 +16,9 @@ If an idea was already built, users join the existing build/result instead of pa
 ## Core Features
 - AI-generated app ideas feed
 - Swipe voting UX on desktop and mobile
-- Build any idea at any time (not only top-voted)
-- Live generation stream with concise model reasoning
+- Build unlock at 5 Love votes
+- Landing-page-first generation, then MVP app generation
+- Live HTML generation stream focused on code/output
 - Cached builds by exact `ideaId`
 - History gallery of completed builds
 - Copy/download HTML output directly
@@ -52,9 +54,9 @@ npm run dev
 - `http://localhost:3000/arena` for voting/build
 
 ## How GLM 5.1 Is Used (and Why)
-GLM 5.1 powers two critical stages in VoteToShip: idea generation and build generation. First, the app calls GLM 5.1 to create a fresh set of practical, buildable web app ideas. This keeps each battle novel without requiring manual curation. Second, when a user clicks Build, GLM 5.1 generates a structured payload containing concise reasoning plus two complete HTML artifacts: a landing page and an MVP app. We intentionally constrain outputs to standalone HTML plus Tailwind CDN plus vanilla JavaScript so results are portable, easy to preview in an iframe, and easy to download or copy.
+GLM 5.1 powers two critical stages in VoteToShip: idea generation and build generation. First, the app calls GLM 5.1 to create a fresh set of practical, buildable web app ideas. This keeps each battle novel without requiring manual curation. Second, when a user clicks Build on an unlocked idea, GLM 5.1 generates two complete HTML artifacts in sequence: first a landing page, then an MVP app. We intentionally constrain outputs to standalone HTML plus Tailwind CDN plus vanilla JavaScript so results are portable, easy to preview in an iframe, and easy to download or copy.
 
-GLM 5.1 was chosen because this product needs both creative ideation and reliable code synthesis in one pipeline. The model is used with low-to-moderate temperature for predictable structure, while streaming is enabled to provide a live "AI at work" experience. To reduce token usage and latency, we store build outputs in Supabase and key cache by exact `ideaId`; if a build already exists (or is currently running), users receive the existing stream/result instead of triggering a duplicate generation. This makes the system cheaper, faster for repeated traffic, and more consistent for collaborative voting sessions.
+GLM 5.1 was chosen because this product needs both creative ideation and reliable code synthesis in one pipeline. The model is used with low temperature for predictable HTML structure, while streaming is enabled to provide a live "AI at work" experience without over-spending on extra reasoning. To reduce token usage and latency, we store build outputs in Supabase and key cache by exact `ideaId`; if a build already exists (or is currently running), users receive the existing stream/result instead of triggering a duplicate generation. This makes the system cheaper, faster for repeated traffic, and more consistent for collaborative voting sessions.
 
 ## Architecture Diagram
 ```mermaid

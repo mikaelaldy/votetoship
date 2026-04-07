@@ -3,6 +3,12 @@
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  clearStoredAdminToken,
+  getStoredAdminToken,
+  setStoredAdminToken,
+} from "@/lib/admin-client";
+import { BUILD_UPVOTE_THRESHOLD } from "@/lib/constants";
 
 interface Idea {
   id: string;
@@ -20,14 +26,24 @@ const IdeaRow = memo(function IdeaRow({
   index,
   score,
   v,
+  isAdmin,
+  adminBusy,
   onBuild,
+  onBoost,
+  onDelete,
 }: {
   idea: Idea;
   index: number;
   score: number;
   v: VoteData;
-  onBuild: (ideaId: string) => void;
+  isAdmin: boolean;
+  adminBusy: boolean;
+  onBuild: (ideaId: string, upvotes: number) => void;
+  onBoost: (ideaId: string) => void;
+  onDelete: (ideaId: string) => void;
 }) {
+  const unlocked = isAdmin || v.up >= BUILD_UPVOTE_THRESHOLD;
+
   return (
     <div className="panel p-5">
       <div className="flex items-start gap-4">
@@ -47,16 +63,38 @@ const IdeaRow = memo(function IdeaRow({
           <p className="pretty mt-2 line-clamp-3 text-sm leading-6 text-[var(--color-text-secondary)]">
             {idea.description}
           </p>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <span className="text-sm text-[var(--color-text-secondary)]">
-              Love {v.up} · X {v.down}
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[var(--color-text-secondary)]">
+            <span>Love {v.up} · X {v.down}</span>
+            <span>
+              {unlocked ? "Build unlocked" : `${BUILD_UPVOTE_THRESHOLD - v.up} more Love needed`}
             </span>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <button
-              onClick={() => onBuild(idea.id)}
+              onClick={() => onBuild(idea.id, v.up)}
+              disabled={!unlocked}
               className="pill-button pill-button-secondary"
             >
               Build now
             </button>
+            {isAdmin ? (
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => onBoost(idea.id)}
+                  disabled={adminBusy}
+                  className="pill-button pill-button-secondary"
+                >
+                  +1 Love
+                </button>
+                <button
+                  onClick={() => onDelete(idea.id)}
+                  disabled={adminBusy}
+                  className="pill-button pill-button-secondary"
+                >
+                  Remove idea
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -69,25 +107,31 @@ function LeaderboardContent() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [votes, setVotes] = useState<Record<string, VoteData>>({});
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [notice, setNotice] = useState("");
   const pollActiveRef = useRef(true);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [ideasRes, votesRes] = await Promise.all([
-          fetch("/api/ideas", { cache: "no-store" }),
-          fetch("/api/vote", { cache: "no-store" }),
-        ]);
-        const ideasData = await ideasRes.json();
-        const votesData = await votesRes.json();
-        setIdeas(ideasData.ideas || []);
-        setVotes(votesData.votes || {});
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [ideasRes, votesRes] = await Promise.all([
+        fetch("/api/ideas", { cache: "no-store" }),
+        fetch("/api/vote", { cache: "no-store" }),
+      ]);
+      const ideasData = await ideasRes.json();
+      const votesData = await votesRes.json();
+      setIdeas(ideasData.ideas || []);
+      setVotes(votesData.votes || {});
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    setIsAdmin(Boolean(getStoredAdminToken()));
+    void fetchAll();
+  }, [fetchAll]);
 
   useEffect(() => {
     pollActiveRef.current = true;
@@ -116,11 +160,71 @@ function LeaderboardContent() {
     });
   }, [ideas, votes]);
 
+  const runAdminAction = async (body: Record<string, string>) => {
+    setAdminBusy(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": getStoredAdminToken(),
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNotice(data.error || "Admin action failed.");
+        return;
+      }
+      if (data.ideas) setIdeas(data.ideas || []);
+      if (data.votes) setVotes(data.votes || {});
+      if (body.action === "boostIdea") setNotice("Added one Love vote.");
+      if (body.action === "deleteIdea") setNotice("Idea removed.");
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  const toggleAdmin = async () => {
+    if (isAdmin) {
+      clearStoredAdminToken();
+      setIsAdmin(false);
+      setNotice("Admin mode turned off.");
+      return;
+    }
+
+    const token = window.prompt("Enter admin token");
+    if (!token) return;
+    setStoredAdminToken(token.trim());
+
+    const res = await fetch("/api/admin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-token": token.trim(),
+      },
+      body: JSON.stringify({ action: "ping" }),
+    });
+
+    if (!res.ok) {
+      clearStoredAdminToken();
+      setNotice("Admin token was rejected.");
+      return;
+    }
+
+    setIsAdmin(true);
+    setNotice("Admin mode enabled.");
+  };
+
   const handleBuild = useCallback(
-    (ideaId: string) => {
+    (ideaId: string, upvotes: number) => {
+      if (!isAdmin && upvotes < BUILD_UPVOTE_THRESHOLD) {
+        setNotice(`This idea needs ${BUILD_UPVOTE_THRESHOLD} Love votes before it can be built.`);
+        return;
+      }
       router.push(`/build?ideaId=${ideaId}`);
     },
-    [router]
+    [isAdmin, router]
   );
 
   if (loading) return null;
@@ -132,9 +236,14 @@ function LeaderboardContent() {
           <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <Link href="/arena" className="pill-button pill-button-secondary">
-            Back to swipe voting
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/arena" className="pill-button pill-button-secondary">
+              Back to swipe voting
+            </Link>
+            <button onClick={() => void toggleAdmin()} className="pill-button pill-button-secondary">
+              {isAdmin ? "Admin on" : "Admin"}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -146,8 +255,14 @@ function LeaderboardContent() {
               Live leaderboard
             </h1>
             <p className="pretty mt-3 max-w-2xl text-base leading-7 text-[var(--color-text-secondary)] sm:text-lg">
-              Top ideas ranked by Love minus X.
+              Top ideas ranked by Love minus X. Builds unlock at {BUILD_UPVOTE_THRESHOLD} Love votes.
             </p>
+
+            {notice ? (
+              <div className="panel mt-4 p-4 text-sm text-[var(--color-text-secondary)]">
+                {notice}
+              </div>
+            ) : null}
 
             <div className="mt-6 space-y-4">
               {rankedIdeas.map((idea, index) => {
@@ -160,7 +275,11 @@ function LeaderboardContent() {
                     index={index}
                     score={score}
                     v={v}
+                    isAdmin={isAdmin}
+                    adminBusy={adminBusy}
                     onBuild={handleBuild}
+                    onBoost={(ideaId) => void runAdminAction({ action: "boostIdea", ideaId })}
+                    onDelete={(ideaId) => void runAdminAction({ action: "deleteIdea", ideaId })}
                   />
                 );
               })}
@@ -172,8 +291,8 @@ function LeaderboardContent() {
               <p className="eyebrow">Read the board</p>
               <ul className="mt-4 space-y-3 text-sm leading-6 text-[var(--color-text-secondary)]">
                 <li>Positive scores rise from Love outpacing X.</li>
-                <li>Every row can jump straight into build mode.</li>
-                <li>Use the arena when you want faster decisions than scanning a list.</li>
+                <li>Ideas need {BUILD_UPVOTE_THRESHOLD} Love votes before public builds unlock.</li>
+                <li>Admin mode can boost ideas or remove weak ones for the demo.</li>
               </ul>
             </div>
           </aside>

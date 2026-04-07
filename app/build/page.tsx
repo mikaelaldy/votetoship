@@ -1,12 +1,11 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { JetBrains_Mono } from "next/font/google";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import dynamic from "next/dynamic";
+import { getStoredAdminToken } from "@/lib/admin-client";
 
 const SyntaxHighlighter = dynamic(
   () => import("react-syntax-highlighter").then((mod) => mod.Prism),
@@ -29,79 +28,8 @@ function formatElapsed(seconds: number) {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
-type StreamTab = "raw" | "pretty" | "jsonReasoning" | "landing" | "app";
-
-interface DonePayload {
-  slug?: string;
-  title?: string;
-  reasoning?: string;
-  landingHtml?: string;
-  appHtml?: string;
-  cached?: boolean;
-}
-
-function tryParsePayload(raw: string): {
-  reasoning?: string;
-  landingHtml?: string;
-  appHtml?: string;
-} | null {
-  const first = raw.indexOf("{");
-  const last = raw.lastIndexOf("}");
-  if (first < 0 || last <= first) return null;
-  try {
-    const parsed = JSON.parse(raw.slice(first, last + 1)) as Record<string, unknown>;
-    if (
-      typeof parsed.reasoning === "string" &&
-      typeof parsed.landingHtml === "string" &&
-      typeof parsed.appHtml === "string"
-    ) {
-      return {
-        reasoning: parsed.reasoning,
-        landingHtml: parsed.landingHtml,
-        appHtml: parsed.appHtml,
-      };
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function useThrottledState<T>(initial: T, ms: number): [T, (next: T | ((prev: T) => T)) => void] {
-  const [flushed, setFlushed] = useState<T>(initial);
-  const pendingRef = useRef<T>(initial);
-  const rafRef = useRef<number | null>(null);
-  const lastFlushRef = useRef(0);
-
-  const flush = useCallback(() => {
-    const now = performance.now();
-    if (now - lastFlushRef.current < ms) {
-      if (rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(() => {
-          rafRef.current = null;
-          lastFlushRef.current = performance.now();
-          setFlushed(pendingRef.current);
-        });
-      }
-      return;
-    }
-    lastFlushRef.current = now;
-    setFlushed(pendingRef.current);
-  }, [ms]);
-
-  const set = useCallback(
-    (next: T | ((prev: T) => T)) => {
-      pendingRef.current =
-        typeof next === "function"
-          ? (next as (prev: T) => T)(pendingRef.current)
-          : next;
-      flush();
-    },
-    [flush]
-  );
-
-  return [flushed, set];
-}
+type StreamTab = "landing" | "app";
+type BuildPhase = "boot" | "landing" | "app" | "done";
 
 function BuildContent() {
   const router = useRouter();
@@ -110,9 +38,6 @@ function BuildContent() {
   const forceFlag = searchParams.get("forceRebuild") === "1";
 
   const [statusMessage, setStatusMessage] = useState("Initializing...");
-  const [planMarkdown, setPlanMarkdown] = useState("");
-  const [codegenThinking, setCodegenThinking] = useState("");
-  const [displayCode, setDisplayCode] = useThrottledState("", 400);
   const [buildDone, setBuildDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -120,38 +45,20 @@ function BuildContent() {
   const [title, setTitle] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [forceRebuild, setForceRebuild] = useState(forceFlag);
-  const [streamTab, setStreamTab] = useState<StreamTab>("raw");
-  const [wrapLines, setWrapLines] = useState(false);
+  const [streamTab, setStreamTab] = useState<StreamTab>("landing");
   const [previewMode, setPreviewMode] = useState<"landing" | "app">("landing");
-  const [donePayload, setDonePayload] = useState<DonePayload | null>(null);
   const [copied, setCopied] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [buildPhase, setBuildPhase] = useState<BuildPhase>("boot");
+  const [landingHtml, setLandingHtml] = useState("");
+  const [appHtml, setAppHtml] = useState("");
+  const [tabNotice, setTabNotice] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const codeEndRef = useRef<HTMLDivElement>(null);
-  const liveCodeRef = useRef("");
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const debouncedScroll = useCallback(() => {
-    if (scrollTimerRef.current !== null) return;
-    scrollTimerRef.current = setTimeout(() => {
-      scrollTimerRef.current = null;
-      codeEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 300);
-  }, []);
 
   useEffect(() => {
-    if (!streaming) {
-      codeEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    } else {
-      debouncedScroll();
-    }
-  }, [displayCode, codegenThinking, streamTab, streaming, debouncedScroll]);
-
-  useEffect(() => {
-    return () => {
-      if (scrollTimerRef.current !== null) clearTimeout(scrollTimerRef.current);
-    };
-  }, []);
+    codeEndRef.current?.scrollIntoView({ behavior: streaming ? "smooth" : "auto" });
+  }, [landingHtml, appHtml, streamTab, streaming]);
 
   useEffect(() => {
     if (buildDone) return;
@@ -159,76 +66,39 @@ function BuildContent() {
     return () => clearInterval(timer);
   }, [buildDone]);
 
-  const parsedStream = useMemo(() => tryParsePayload(displayCode), [displayCode]);
-
-  const prettyJson = useMemo(() => {
-    const parsed = tryParsePayload(displayCode);
-    if (!parsed) return null;
-    try {
-      return JSON.stringify(
-        {
-          reasoning: parsed.reasoning,
-          landingHtml: parsed.landingHtml,
-          appHtml: parsed.appHtml,
-        },
-        null,
-        2
-      );
-    } catch {
-      return null;
-    }
-  }, [displayCode]);
-
-  const displayForTab = useMemo(() => {
-    if (streamTab === "raw") return displayCode;
-    if (streamTab === "pretty") return prettyJson ?? displayCode;
-    if (streamTab === "jsonReasoning") {
-      const r = donePayload?.reasoning ?? parsedStream?.reasoning;
-      if (!r) return "";
-      return JSON.stringify({ reasoning: r }, null, 2);
-    }
-    if (streamTab === "landing") {
-      return donePayload?.landingHtml ?? parsedStream?.landingHtml ?? "";
-    }
-    if (streamTab === "app") {
-      return donePayload?.appHtml ?? parsedStream?.appHtml ?? "";
-    }
-    return "";
-  }, [streamTab, displayCode, prettyJson, donePayload, parsedStream]);
-
-  const languageForTab = useMemo<"json" | "markup">(() => {
-    if (streamTab === "pretty" || streamTab === "raw") return "json";
-    if (streamTab === "jsonReasoning") return "json";
-    return "markup";
-  }, [streamTab]);
-
   const copyVisible = useCallback(async () => {
-    const text = liveCodeRef.current;
+    const text = streamTab === "landing" ? landingHtml : appHtml;
     if (!text) return;
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
-  }, []);
+  }, [appHtml, landingHtml, streamTab]);
 
   const downloadVisible = useCallback(() => {
-    const text = liveCodeRef.current;
+    const text = streamTab === "landing" ? landingHtml : appHtml;
     if (!text) return;
-    const ext =
-      streamTab === "landing" || streamTab === "app"
-        ? "html"
-        : streamTab === "pretty" || streamTab === "raw"
-          ? "json.txt"
-          : "txt";
-    const blob = new Blob([text], { type: "text/plain" });
+    const blob = new Blob([text], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `votetoship-build-${ideaId || "stream"}.${ext}`;
+    a.download = `votetoship-build-${ideaId || "stream"}-${streamTab}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [streamTab, ideaId]);
+  }, [appHtml, ideaId, landingHtml, streamTab]);
+
+  const openTab = useCallback(
+    (tab: StreamTab) => {
+      if (tab === "app" && buildPhase === "landing") {
+        setTabNotice("Landing page is still generating. Wait for it to finish before the app HTML starts.");
+      } else {
+        setTabNotice("");
+      }
+      setStreamTab(tab);
+    },
+    [buildPhase]
+  );
 
   const startStream = useCallback(async () => {
     if (!ideaId) {
@@ -244,22 +114,25 @@ function BuildContent() {
       setBuildDone(false);
       setError(null);
       setStatusMessage("Initializing...");
-      setPlanMarkdown("");
-      setCodegenThinking("");
-      liveCodeRef.current = "";
-      setDisplayCode("");
-      setDonePayload(null);
+      setLandingHtml("");
+      setAppHtml("");
       setElapsed(0);
-      setStreamTab("raw");
+      setStreamTab("landing");
+      setPreviewMode("landing");
+      setBuildPhase("boot");
+      setTabNotice("");
 
       const query = new URLSearchParams({
         ideaId,
         ...(forceRebuild ? { forceRebuild: "1" } : {}),
       });
+
       setStreaming(true);
+      const adminToken = getStoredAdminToken();
       const res = await fetch(`/api/build?${query.toString()}`, {
         method: "GET",
         signal,
+        headers: adminToken ? { "x-admin-token": adminToken } : undefined,
       });
 
       if (!res.ok || !res.body) {
@@ -286,30 +159,38 @@ function BuildContent() {
           const payload = JSON.parse(line.slice(6));
 
           if (payload.type === "status") setStatusMessage(payload.message || "Working...");
-          if (payload.type === "analysis") setStatusMessage(payload.message || "Analyzing...");
-          if (payload.type === "reasoning") setPlanMarkdown(payload.content || "");
-          if (payload.type === "thinking_delta") {
-            setCodegenThinking((prev) => prev + (payload.content || ""));
+          if (payload.type === "phase") {
+            setBuildPhase(payload.phase || "boot");
+            if (payload.phase === "landing") {
+              setStreamTab("landing");
+              setPreviewMode("landing");
+            }
+            if (payload.phase === "app") {
+              setTabNotice("");
+            }
           }
-          if (payload.type === "code") {
-            liveCodeRef.current += payload.content || "";
-            setDisplayCode(liveCodeRef.current);
+          if (payload.type === "landing_chunk") {
+            setLandingHtml((prev) => prev + (payload.content || ""));
+          }
+          if (payload.type === "app_chunk") {
+            setAppHtml((prev) => prev + (payload.content || ""));
+          }
+          if (payload.type === "landing_done") {
+            setStatusMessage("Landing page complete. Starting MVP app HTML...");
+            setBuildPhase("app");
+          }
+          if (payload.type === "app_done") {
+            setStatusMessage("MVP app HTML complete.");
           }
 
           if (payload.type === "done") {
             setBuildDone(true);
+            setBuildPhase("done");
             setStatusMessage(payload.cached ? "Loaded from cache" : "Build complete");
             setSlug(payload.slug || ideaId);
             setTitle(payload.title || "Built app");
-            setDisplayCode(liveCodeRef.current);
-            setDonePayload({
-              slug: payload.slug,
-              title: payload.title,
-              reasoning: payload.reasoning,
-              landingHtml: payload.landingHtml,
-              appHtml: payload.appHtml,
-              cached: payload.cached,
-            });
+            setLandingHtml(payload.landingHtml || "");
+            setAppHtml(payload.appHtml || "");
           }
 
           if (payload.type === "error") {
@@ -333,7 +214,7 @@ function BuildContent() {
     } finally {
       setStreaming(false);
     }
-  }, [forceRebuild, ideaId, setDisplayCode]);
+  }, [forceRebuild, ideaId]);
 
   useEffect(() => {
     startStream();
@@ -341,10 +222,9 @@ function BuildContent() {
 
   const elapsedLabel = useMemo(() => formatElapsed(elapsed), [elapsed]);
 
-  const previewHtml =
-    previewMode === "landing"
-      ? donePayload?.landingHtml ?? ""
-      : donePayload?.appHtml ?? "";
+  const displayForTab = streamTab === "landing" ? landingHtml : appHtml;
+  const previewHtml = previewMode === "landing" ? landingHtml : appHtml;
+  const waitingForApp = streamTab === "app" && buildPhase === "landing";
 
   return (
     <div className="app-shell">
@@ -375,27 +255,21 @@ function BuildContent() {
           </span>
         </div>
 
-        {planMarkdown ? (
-          <section className="panel mt-5 max-w-[800px] p-[18px]">
-            <h2 className="mb-[10px] text-[13px] font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
-              Plan
-            </h2>
-            <div className="max-w-none text-[14px] leading-relaxed text-[var(--color-text-primary)] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:mt-2 [&_h2]:text-[16px] [&_h2]:font-bold [&_strong]:font-semibold">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{planMarkdown}</ReactMarkdown>
-            </div>
-          </section>
-        ) : null}
-
-        {codegenThinking ? (
-          <section className="panel mt-[14px] max-w-[800px] p-[18px]">
-            <h2 className="mb-[10px] text-[13px] font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
-              Model thinking (during codegen)
-            </h2>
-            <div className="max-w-none whitespace-pre-wrap text-[14px] leading-relaxed text-slate-700">
-              {codegenThinking}
-            </div>
-          </section>
-        ) : null}
+        <div className="mt-5 flex flex-wrap gap-3 text-sm text-[var(--color-text-secondary)]">
+          <span className="panel px-4 py-2 shadow-none">
+            {buildPhase === "landing" || buildPhase === "boot"
+              ? "Step 1 of 2: Landing page"
+              : buildPhase === "app"
+                ? "Step 2 of 2: MVP app"
+                : "Finished"}
+          </span>
+          <span className="panel px-4 py-2 shadow-none">
+            Landing {landingHtml ? "streaming" : "queued"}
+          </span>
+          <span className="panel px-4 py-2 shadow-none">
+            App {appHtml ? "streaming" : buildPhase === "landing" || buildPhase === "boot" ? "waiting" : "queued"}
+          </span>
+        </div>
 
         {error && (
           <div className="panel mt-4 border-red-700 p-[14px]">
@@ -423,34 +297,45 @@ function BuildContent() {
           </div>
         )}
 
-        <div className="mt-[18px] rounded-[8px] overflow-hidden border" style={{ borderColor: "#333" }}>
-          <div
-            className="px-[14px] py-[10px] flex flex-wrap items-center justify-between gap-[10px]"
-            style={{ background: "#1a1a1a", color: "#9ca3af" }}
-          >
-            <span className="text-[13px] font-medium">Live generation</span>
-            <div className="flex flex-wrap items-center gap-[8px]">
+        <div className="mt-5 overflow-hidden rounded-[16px] border border-[#333] bg-[#0d0d0d]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#232323] px-4 py-3 text-[#9ca3af]">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setWrapLines((v) => !v)}
-                className="text-[12px] px-[10px] py-[2px] rounded border"
-                style={{ borderColor: "#444", color: "#e5e7eb", background: "#111" }}
+                onClick={() => openTab("landing")}
+                className={`rounded-full px-4 py-2 text-sm font-medium ${
+                  streamTab === "landing"
+                    ? "bg-[#2563eb] text-white"
+                    : "border border-[#333] bg-[#1a1a1a] text-[#e5e7eb]"
+                }`}
               >
-                {wrapLines ? "No wrap" : "Wrap lines"}
+                Landing HTML
               </button>
               <button
                 type="button"
+                onClick={() => openTab("app")}
+                className={`rounded-full px-4 py-2 text-sm font-medium ${
+                  streamTab === "app"
+                    ? "bg-[#2563eb] text-white"
+                    : "border border-[#333] bg-[#1a1a1a] text-[#e5e7eb]"
+                }`}
+              >
+                App HTML
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
                 onClick={() => void copyVisible()}
-                className="text-[12px] px-[10px] py-[2px] rounded border"
-                style={{ borderColor: "#444", color: "#e5e7eb", background: "#111" }}
+                className="rounded border border-[#444] bg-[#111] px-3 py-1 text-xs text-[#e5e7eb]"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
               <button
                 type="button"
                 onClick={downloadVisible}
-                className="text-[12px] px-[10px] py-[2px] rounded border"
-                style={{ borderColor: "#444", color: "#e5e7eb", background: "#111" }}
+                className="rounded border border-[#444] bg-[#111] px-3 py-1 text-xs text-[#e5e7eb]"
               >
                 Download
               </button>
@@ -458,74 +343,52 @@ function BuildContent() {
                 type="button"
                 onClick={() => abortRef.current?.abort()}
                 disabled={!streaming || buildDone}
-                className="text-[12px] px-[10px] py-[2px] rounded border disabled:opacity-40"
-                style={{ borderColor: "#7f1d1d", color: "#fecaca", background: "#450a0a" }}
+                className="rounded border border-[#7f1d1d] bg-[#450a0a] px-3 py-1 text-xs text-[#fecaca] disabled:opacity-40"
               >
                 Stop
               </button>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-[6px] px-[10px] py-[8px]" style={{ background: "#141414" }}>
-            {(
-              [
-                ["raw", "Raw stream"] as const,
-                ["pretty", "Pretty JSON"] as const,
-                ["jsonReasoning", "Reasoning (JSON)"] as const,
-                ["landing", "Landing HTML"] as const,
-                ["app", "App HTML"] as const,
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setStreamTab(id)}
-                className="text-[12px] px-[10px] py-[4px] rounded-full font-medium"
-                style={{
-                  background: streamTab === id ? "#2563eb" : "#262626",
-                  color: "#e5e7eb",
-                  border: streamTab === id ? "none" : "1px solid #333",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {tabNotice ? (
+            <div className="border-b border-[#232323] bg-[#111827] px-4 py-3 text-sm text-[#cbd5e1]">
+              {tabNotice}
+            </div>
+          ) : null}
 
-          <div
-            className={`${jetbrains.className} overflow-auto`}
-            style={{ background: "#0d0d0d", maxHeight: "420px" }}
-          >
-            {streamTab === "jsonReasoning" && !displayForTab ? (
-              <p className="p-[14px] text-[13px]" style={{ color: "#9ca3af" }}>
-                Reasoning field appears when the JSON payload is complete or after build finishes.
-              </p>
-            ) : (streamTab === "landing" || streamTab === "app") && !displayForTab ? (
-              <p className="p-[14px] text-[13px]" style={{ color: "#9ca3af" }}>
-                HTML is available once the model finishes the JSON object or when the build completes.
-              </p>
+          <div className={`${jetbrains.className} max-h-[70dvh] overflow-y-auto overflow-x-hidden`}>
+            {waitingForApp ? (
+              <div className="p-4 text-sm leading-7 text-[#9ca3af]">
+                App HTML has not started yet. Wait for the landing page to finish first.
+              </div>
+            ) : !displayForTab ? (
+              <div className="p-4 text-sm leading-7 text-[#9ca3af]">
+                {streamTab === "landing"
+                  ? "Waiting for landing page HTML..."
+                  : "Waiting for MVP app HTML..."}
+              </div>
             ) : oneDark ? (
               <SyntaxHighlighter
-                language={languageForTab}
+                language="markup"
                 style={oneDark}
                 customStyle={{
                   margin: 0,
-                  padding: 14,
+                  padding: 16,
                   fontSize: 12,
-                  lineHeight: 1.5,
+                  lineHeight: 1.6,
                   background: "#0d0d0d",
+                  whiteSpace: "pre-wrap",
+                  overflowX: "hidden",
+                  wordBreak: "break-word",
                 }}
                 showLineNumbers
-                wrapLongLines={wrapLines}
+                wrapLongLines
               >
-                {`${displayForTab}${!buildDone && !error && streamTab === "raw" ? "▋" : ""}`}
+                {displayForTab}
               </SyntaxHighlighter>
             ) : (
-              <pre
-                className="p-[14px] text-[12px] leading-[1.5] whitespace-pre-wrap"
-                style={{ color: "#e5e7eb" }}
-              >
-                {`${displayForTab}${!buildDone && !error && streamTab === "raw" ? "▋" : ""}`}
+              <pre className="whitespace-pre-wrap break-words p-4 text-[12px] leading-[1.6] text-[#e5e7eb]">
+                {displayForTab}
               </pre>
             )}
             <div ref={codeEndRef} />
@@ -533,7 +396,7 @@ function BuildContent() {
         </div>
 
         {!buildDone && !error && (
-          <div className="mt-[12px] flex flex-wrap items-center gap-[10px]">
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               onClick={() => {
                 setForceRebuild(false);
@@ -555,12 +418,12 @@ function BuildContent() {
           </div>
         )}
 
-        {buildDone && donePayload && (donePayload.landingHtml || donePayload.appHtml) && (
-          <section className="mt-[24px]">
-            <h2 className="mb-[10px] text-[18px] font-bold text-[var(--color-text-primary)]">
+        {(buildDone || landingHtml || appHtml) && (
+          <section className="mt-6">
+            <h2 className="mb-3 text-[18px] font-bold text-[var(--color-text-primary)]">
               Preview
             </h2>
-            <div className="flex flex-wrap gap-[8px] mb-[10px]">
+            <div className="mb-3 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setPreviewMode("landing")}
@@ -576,25 +439,32 @@ function BuildContent() {
                 MVP app
               </button>
             </div>
+
             <div className="panel overflow-hidden">
-              {previewHtml ? (
+              {previewMode === "app" && buildPhase === "landing" ? (
+                <div className="flex min-h-[320px] items-center justify-center p-6 text-center">
+                  <p className="max-w-md text-sm leading-7 text-[var(--color-text-secondary)]">
+                    Landing page is still generating. Wait for it to finish before opening the MVP app preview.
+                  </p>
+                </div>
+              ) : previewHtml ? (
                 <iframe
                   srcDoc={previewHtml}
                   sandbox="allow-scripts"
-                  className="h-[56dvh] min-h-[420px] w-full border-none md:h-[560px]"
+                  className="h-[70dvh] min-h-[420px] w-full border-none"
                   title="build-preview"
                 />
               ) : (
-                <p className="p-[16px] text-[14px] text-[var(--color-text-secondary)]">
-                  No HTML for this preview mode.
-                </p>
+                <div className="p-6 text-sm text-[var(--color-text-secondary)]">
+                  Preview will appear here once HTML is available.
+                </div>
               )}
             </div>
           </section>
         )}
 
         {buildDone && (
-          <div className="mt-[16px] flex flex-wrap items-center gap-[12px]">
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               onClick={() => router.push(`/app/${slug || ideaId}`)}
               className="pill-button pill-button-primary"

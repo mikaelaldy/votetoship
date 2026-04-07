@@ -149,6 +149,24 @@ export async function castVote(params: {
   if (error) throw error;
 }
 
+export async function addAdminVote(params: {
+  ideaId: string;
+  direction: "up" | "down";
+}) {
+  const supabase = getSupabaseAdmin();
+
+  const { error } = await supabase.from("votes").insert({
+    id: randomId("vote"),
+    idea_id: params.ideaId,
+    voter_key: randomId("admin_vote"),
+    direction: params.direction,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  });
+
+  if (error) throw error;
+}
+
 export async function getBuildByIdeaId(ideaId: string): Promise<BuildRecord | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
@@ -212,6 +230,31 @@ export async function appendBuildStream(buildId: string, streamText: string) {
       .eq("id", buildId);
     if (fallbackError) throw fallbackError;
   }
+}
+
+export async function updateBuildOutputs(params: {
+  buildId: string;
+  landingHtml?: string;
+  appHtml?: string;
+  streamText?: string;
+  reasoning?: string;
+}) {
+  const supabase = getSupabaseAdmin();
+  const patch: Record<string, string> = {
+    updated_at: nowIso(),
+  };
+
+  if (typeof params.landingHtml === "string") patch.landing_html = params.landingHtml;
+  if (typeof params.appHtml === "string") patch.app_html = params.appHtml;
+  if (typeof params.streamText === "string") patch.stream_text = params.streamText;
+  if (typeof params.reasoning === "string") patch.reasoning = params.reasoning;
+
+  const { error } = await supabase
+    .from("builds")
+    .update(patch)
+    .eq("id", params.buildId);
+
+  if (error) throw error;
 }
 
 export async function completeBuild(params: {
@@ -324,4 +367,26 @@ export async function getBuildBySlug(slug: string): Promise<BuildRecord | null> 
 
   if (error) throw error;
   return (data as BuildRecord | null) ?? null;
+}
+
+export async function deleteIdeaById(ideaId: string) {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("ideas").delete().eq("id", ideaId);
+  if (error) throw error;
+}
+
+export async function deleteBuildById(buildId: string) {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("builds").delete().eq("id", buildId);
+  if (error) throw error;
+}
+
+export async function resetDemoData() {
+  const supabase = getSupabaseAdmin();
+
+  const { error: stateError } = await supabase.from("app_state").delete().neq("id", 0);
+  if (stateError) throw stateError;
+
+  const { error: battleError } = await supabase.from("idea_battles").delete().neq("id", "");
+  if (battleError) throw battleError;
 }
