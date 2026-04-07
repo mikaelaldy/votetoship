@@ -260,21 +260,28 @@ function ArenaContent() {
     <div className="app-shell">
       <nav className="app-nav">
         <div className="app-container flex flex-wrap items-center justify-between gap-4 py-4">
-          <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
+          <Link href="/arena" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <button
-            onClick={() => router.push("/arena?reset=1")}
-            className="pill-button pill-button-secondary"
-          >
-            Start clean battle
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/leaderboard" className="pill-button pill-button-secondary">
+              Leaderboard
+            </Link>
+            <Link href="/history" className="pill-button pill-button-secondary">
+              History
+            </Link>
+            <button
+              onClick={() => router.push("/arena?reset=1")}
+              className="pill-button pill-button-secondary"
+            >
+              Reset
+            </button>
+          </div>
         </div>
       </nav>
 
       <main className="app-container page-section">
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div>
+        <section className="mx-auto max-w-[760px]">
             <p className="eyebrow">Arena</p>
             <h1 className="balance mt-4 text-[40px] font-extrabold leading-none text-[var(--color-text-primary)] sm:text-[44px]">
               Swipe to vote
@@ -289,7 +296,7 @@ function ArenaContent() {
               {refilling ? <span className="panel px-4 py-2 shadow-none">Refreshing ideas...</span> : null}
             </div>
 
-            <div className="mt-6 min-h-[360px] max-w-[760px]">
+            <div className="mt-6 min-h-[360px]">
               {refilling ? (
                 <div className="panel p-6">
                   <p className="text-base text-[var(--color-text-secondary)]">
@@ -312,17 +319,6 @@ function ArenaContent() {
                       }}
                     >
                       X
-                    </span>
-                    <span
-                      className="rounded-[23px] border px-4 py-2 text-xs font-semibold uppercase"
-                      style={{
-                        opacity: dragX > 0 ? swipeProgress : 0.2,
-                        borderColor: "#C8CDD1",
-                        background: "#fff",
-                        color: "#14532d",
-                      }}
-                    >
-                      Love
                     </span>
                   </div>
 
@@ -382,35 +378,46 @@ function ArenaContent() {
                   <p className="text-base text-[var(--color-text-primary)]">
                     You voted all ideas. You can still build any idea from the leaderboard.
                   </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Link href="/leaderboard" className="pill-button pill-button-secondary">
+                      Open leaderboard
+                    </Link>
+                    <button
+                      onClick={() => router.push("/arena?reset=1")}
+                      className="pill-button pill-button-primary"
+                    >
+                      Start another round
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
-          </div>
-
-          <aside className="space-y-4">
-            <div className="panel p-5">
-              <p className="eyebrow">Swipe rules</p>
-              <ul className="mt-4 space-y-3 text-sm leading-6 text-[var(--color-text-secondary)]">
-                <li>Swipe right or tap Love to push an idea up.</li>
-                <li>Swipe left or tap X to cut weak ideas fast.</li>
-                <li>Build is always available, even before the vote settles.</li>
-              </ul>
-            </div>
-
-            <div className="panel p-5">
-              <p className="eyebrow">Continue</p>
-              <div className="mt-4 flex flex-col gap-3">
-                <Link href="/leaderboard" className="pill-button pill-button-secondary w-full">
-                  Open live leaderboard
-                </Link>
-                <Link href="/history" className="pill-button pill-button-secondary w-full">
-                  Browse build history
-                </Link>
-              </div>
-            </div>
-          </aside>
         </section>
       </main>
+
+      <footer className="border-t border-[var(--color-border-default)]">
+        <div className="app-container flex flex-wrap items-center justify-between gap-3 py-4 text-sm text-[var(--color-text-secondary)]">
+          <div className="flex flex-wrap items-center gap-4">
+            <span>Swipe right for Love. Swipe left for X.</span>
+            <a
+              href="https://mikacend.xyz"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-[var(--color-text-primary)]"
+            >
+              mikacend.xyz
+            </a>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/leaderboard" className="hover:text-[var(--color-text-primary)]">
+              Live leaderboard
+            </Link>
+            <Link href="/history" className="hover:text-[var(--color-text-primary)]">
+              Build history
+            </Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
