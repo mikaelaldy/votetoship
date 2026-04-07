@@ -50,6 +50,7 @@ function BuildContent() {
   const [copied, setCopied] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [buildPhase, setBuildPhase] = useState<BuildPhase>("boot");
+  const [phaseStatus, setPhaseStatus] = useState<"idle" | "streaming" | "retrying">("idle");
   const [landingHtml, setLandingHtml] = useState("");
   const [appHtml, setAppHtml] = useState("");
   const [tabNotice, setTabNotice] = useState("");
@@ -132,6 +133,7 @@ function BuildContent() {
       setStreamTab("landing");
       setPreviewMode("landing");
       setBuildPhase("boot");
+      setPhaseStatus("idle");
       setTabNotice("");
 
       const query = new URLSearchParams({
@@ -170,7 +172,18 @@ function BuildContent() {
 
           const payload = JSON.parse(line.slice(6));
 
-          if (payload.type === "status") setStatusMessage(payload.message || "Working...");
+          if (payload.type === "status") {
+            const nextMessage = payload.message || "Working...";
+            setStatusMessage(nextMessage);
+            if (nextMessage.toLowerCase().includes("retrying")) {
+              setPhaseStatus("retrying");
+            } else if (
+              nextMessage.toLowerCase().includes("generating") ||
+              nextMessage.toLowerCase().includes("starting")
+            ) {
+              setPhaseStatus("streaming");
+            }
+          }
           if (payload.type === "phase") {
             setBuildPhase(payload.phase || "boot");
             if (payload.phase === "landing") {
@@ -190,14 +203,17 @@ function BuildContent() {
           if (payload.type === "landing_done") {
             setStatusMessage("Landing page complete. Starting MVP app HTML...");
             setBuildPhase("app");
+            setPhaseStatus("streaming");
           }
           if (payload.type === "app_done") {
             setStatusMessage("MVP app HTML complete.");
+            setPhaseStatus("idle");
           }
 
           if (payload.type === "done") {
             setBuildDone(true);
             setBuildPhase("done");
+            setPhaseStatus("idle");
             setStatusMessage(payload.cached ? "Loaded from cache" : "Build complete");
             setSlug(payload.slug || ideaId);
             setTitle(payload.title || "Built app");
@@ -233,6 +249,16 @@ function BuildContent() {
   }, [startStream, attempt]);
 
   const elapsedLabel = useMemo(() => formatElapsed(elapsed), [elapsed]);
+  const phaseBadge = useMemo(() => {
+    if (buildPhase === "done") return "Finished";
+    if (buildPhase === "landing") {
+      return phaseStatus === "retrying" ? "Retrying landing page" : "Building landing page";
+    }
+    if (buildPhase === "app") {
+      return phaseStatus === "retrying" ? "Retrying MVP app" : "Building MVP app";
+    }
+    return "Preparing build";
+  }, [buildPhase, phaseStatus]);
 
   const displayForTab = streamTab === "landing" ? landingHtml : appHtml;
   const previewHtml = previewMode === "landing" ? landingHtml : appHtml;
@@ -274,6 +300,9 @@ function BuildContent() {
               : buildPhase === "app"
                 ? "Step 2 of 2: MVP app"
                 : "Finished"}
+          </span>
+          <span className="panel px-4 py-2 shadow-none">
+            {phaseBadge}
           </span>
           <span className="panel px-4 py-2 shadow-none">
             Landing {landingHtml ? "streaming" : "queued"}
