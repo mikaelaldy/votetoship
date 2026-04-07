@@ -295,6 +295,19 @@ export async function listBuildHistory(limit = 50): Promise<BuildRecord[]> {
   return (data as BuildRecord[]) || [];
 }
 
+/** Recent builds of any status (for dashboard: in progress vs finished). */
+export async function listRecentBuilds(limit = 50): Promise<BuildRecord[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("builds")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return (data as BuildRecord[]) || [];
+}
+
 export async function getBuildBySlug(slug: string): Promise<BuildRecord | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase

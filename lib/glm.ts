@@ -18,6 +18,35 @@ interface GLMStreamOptions {
   includeReasoning?: boolean;
   timeoutMs?: number;
   maxOutputChars?: number;
+  /** When aborted (e.g. client disconnected), ongoing fetch/stream stops. */
+  signal?: AbortSignal;
+}
+
+interface CallGLMOptions {
+  signal?: AbortSignal;
+}
+
+function mergeFetchSignal(timeoutMs: number, external?: AbortSignal): AbortController {
+  const merged = new AbortController();
+  const timeout = setTimeout(() => merged.abort(), timeoutMs);
+  const onAbort = () => merged.abort();
+  if (external) {
+    if (external.aborted) {
+      clearTimeout(timeout);
+      merged.abort();
+      return merged;
+    }
+    external.addEventListener("abort", onAbort, { once: true });
+  }
+  merged.signal.addEventListener(
+    "abort",
+    () => {
+      clearTimeout(timeout);
+      external?.removeEventListener("abort", onAbort);
+    },
+    { once: true }
+  );
+  return merged;
 }
 
 /** Separates `delta.reasoning_content` from `delta.content` (Z.AI streaming). */
@@ -25,13 +54,13 @@ export type GLMTaggedChunk = { kind: "reasoning" | "content"; text: string };
 
 export async function callGLM(
   messages: GLMMessage[],
-  temperature = 0.7
+  temperature = 0.7,
+  options: CallGLMOptions = {}
 ): Promise<string> {
   const apiKey = process.env.GLM_API_KEY;
   if (!apiKey) throw new Error("GLM_API_KEY is not set");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120000);
+  const merged = mergeFetchSignal(120000, options.signal);
 
   let response: Response;
   try {
@@ -41,7 +70,7 @@ export async function callGLM(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      signal: controller.signal,
+      signal: merged.signal,
       body: JSON.stringify({
         model: "GLM-5.1",
         messages,
@@ -51,11 +80,10 @@ export async function callGLM(
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
+      if (options.signal?.aborted) throw error;
       throw new Error("GLM request timed out");
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 
   if (!response.ok) {
@@ -79,8 +107,7 @@ export async function* callGLMStream(
   const apiKey = process.env.GLM_API_KEY;
   if (!apiKey) throw new Error("GLM_API_KEY is not set");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const merged = mergeFetchSignal(timeoutMs, options.signal);
 
   let response: Response;
   try {
@@ -90,7 +117,7 @@ export async function* callGLMStream(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      signal: controller.signal,
+      signal: merged.signal,
       body: JSON.stringify({
         model: "GLM-5.1",
         messages,
@@ -101,11 +128,10 @@ export async function* callGLMStream(
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
+      if (options.signal?.aborted) throw error;
       throw new Error("GLM stream timed out");
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 
   if (!response.ok) {
@@ -126,6 +152,10 @@ export async function* callGLMStream(
     let outputChars = 0;
 
     while (true) {
+      if (options.signal?.aborted) {
+        await reader.cancel().catch(() => undefined);
+        throw new DOMException("Aborted", "AbortError");
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -156,6 +186,9 @@ export async function* callGLMStream(
       }
     }
   } else {
+    if (options.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
     const data: GLMResponse = await response.json();
     const msg = data.choices[0]?.message;
     const content = includeReasoning
@@ -179,8 +212,7 @@ export async function* callGLMStreamTagged(
   const apiKey = process.env.GLM_API_KEY;
   if (!apiKey) throw new Error("GLM_API_KEY is not set");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const merged = mergeFetchSignal(timeoutMs, options.signal);
 
   let response: Response;
   try {
@@ -190,7 +222,7 @@ export async function* callGLMStreamTagged(
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      signal: controller.signal,
+      signal: merged.signal,
       body: JSON.stringify({
         model: "GLM-5.1",
         messages,
@@ -201,11 +233,10 @@ export async function* callGLMStreamTagged(
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
+      if (options.signal?.aborted) throw error;
       throw new Error("GLM stream timed out");
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 
   if (!response.ok) {
@@ -226,6 +257,10 @@ export async function* callGLMStreamTagged(
     let outputChars = 0;
 
     while (true) {
+      if (options.signal?.aborted) {
+        await reader.cancel().catch(() => undefined);
+        throw new DOMException("Aborted", "AbortError");
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -262,6 +297,9 @@ export async function* callGLMStreamTagged(
       }
     }
   } else {
+    if (options.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
     const data: GLMResponse = await response.json();
     const msg = data.choices[0]?.message;
     const reasoningText = msg?.reasoning_content || "";

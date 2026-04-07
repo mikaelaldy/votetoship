@@ -128,6 +128,7 @@ function ArenaContent() {
 
   const submitVote = useCallback(
     async (ideaId: string, direction: "up" | "down") => {
+      if (refilling) return;
       const voterToken = getVoterToken();
       const res = await fetch("/api/vote", {
         method: "POST",
@@ -145,10 +146,11 @@ function ArenaContent() {
       saveVotedIdeas(next);
       setDragX(0);
     },
-    [voted]
+    [refilling, voted]
   );
 
   const handlePointerDown = (pointerId: number, x: number, target: HTMLElement) => {
+    if (refilling) return;
     activePointerId.current = pointerId;
     pointerStart.current = x;
     target.setPointerCapture(pointerId);
@@ -168,6 +170,10 @@ function ArenaContent() {
 
   const handlePointerUp = async (pointerId: number) => {
     if (activePointerId.current !== pointerId) return;
+    if (refilling) {
+      resetPointerState();
+      return;
+    }
     if (!activeIdea) {
       resetPointerState();
       return;
@@ -201,6 +207,7 @@ function ArenaContent() {
 
     (async () => {
       setRefilling(true);
+      setIdeas([]);
       try {
         await fetch("/api/ideas", { method: "POST" });
         const empty = new Set<string>();
@@ -254,7 +261,13 @@ function ArenaContent() {
           </div>
 
           <div className="mt-[24px] min-h-[340px] max-w-[700px]">
-            {activeIdea ? (
+            {refilling ? (
+              <div className="rounded-[10px] border p-[24px]" style={{ borderColor: "#C8CDD1", background: "#fff" }}>
+                <p className="text-[16px]" style={{ color: "#797979" }}>
+                  Loading new ideas…
+                </p>
+              </div>
+            ) : activeIdea ? (
               <div
                 onPointerDown={(e) => handlePointerDown(e.pointerId, e.clientX, e.currentTarget)}
                 onPointerMove={(e) => handlePointerMove(e.pointerId, e.clientX)}
@@ -286,14 +299,14 @@ function ArenaContent() {
 
                 <div className="mt-[22px] grid grid-cols-3 gap-[10px]">
                   <button
-                    onClick={() => submitVote(activeIdea.id, "down")}
+                    onClick={() => void submitVote(activeIdea.id, "down")}
                     className="px-[14px] py-[10px] rounded-[20px] border text-[14px] font-semibold"
                     style={{ borderColor: "#C8CDD1", color: "#b91c1c", background: "#fff" }}
                   >
                     X
                   </button>
                   <button
-                    onClick={() => submitVote(activeIdea.id, "up")}
+                    onClick={() => void submitVote(activeIdea.id, "up")}
                     className="px-[14px] py-[10px] rounded-[20px] border text-[14px] font-semibold"
                     style={{ borderColor: "#C8CDD1", color: "#166534", background: "#fff" }}
                   >

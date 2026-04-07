@@ -80,6 +80,8 @@ function BuildContent() {
   const [previewMode, setPreviewMode] = useState<"landing" | "app">("landing");
   const [donePayload, setDonePayload] = useState<DonePayload | null>(null);
   const [copied, setCopied] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const codeEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -170,6 +172,10 @@ function BuildContent() {
     }
 
     try {
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      const { signal } = abortRef.current;
+
       setBuildDone(false);
       setError(null);
       setStatusMessage("Initializing...");
@@ -184,8 +190,10 @@ function BuildContent() {
         ideaId,
         ...(forceRebuild ? { forceRebuild: "1" } : {}),
       });
+      setStreaming(true);
       const res = await fetch(`/api/build?${query.toString()}`, {
         method: "GET",
+        signal,
       });
 
       if (!res.ok || !res.body) {
@@ -235,12 +243,25 @@ function BuildContent() {
           }
 
           if (payload.type === "error") {
-            throw new Error(payload.message || "Build failed");
+            const msg = payload.message || "Build failed";
+            if (msg === "Build stopped" || msg.includes("stopped")) {
+              setStatusMessage(msg);
+              setError(null);
+              return;
+            }
+            throw new Error(msg);
           }
         }
       }
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setStatusMessage("Build stopped");
+        setError(null);
+        return;
+      }
       setError(e instanceof Error ? e.message : "Build failed");
+    } finally {
+      setStreaming(false);
     }
   }, [forceRebuild, ideaId]);
 
@@ -372,6 +393,15 @@ function BuildContent() {
                 style={{ borderColor: "#444", color: "#e5e7eb", background: "#111" }}
               >
                 Download
+              </button>
+              <button
+                type="button"
+                onClick={() => abortRef.current?.abort()}
+                disabled={!streaming || buildDone}
+                className="text-[12px] px-[10px] py-[2px] rounded border disabled:opacity-40"
+                style={{ borderColor: "#7f1d1d", color: "#fecaca", background: "#450a0a" }}
+              >
+                Stop
               </button>
             </div>
           </div>

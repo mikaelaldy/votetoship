@@ -54,7 +54,7 @@ function tryParseBuildPayload(raw: string): BuildPayload | null {
   return null;
 }
 
-async function repairBuildPayload(raw: string): Promise<BuildPayload | null> {
+async function repairBuildPayload(raw: string, signal?: AbortSignal): Promise<BuildPayload | null> {
   const repaired = await callGLM(
     [
       {
@@ -67,9 +67,17 @@ async function repairBuildPayload(raw: string): Promise<BuildPayload | null> {
         content: `Fix this model output into valid JSON with the required keys and keep best available HTML:\n\n${raw}`,
       },
     ],
-    0
+    0,
+    { signal }
   );
   return tryParseBuildPayload(repaired);
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
 }
 
 async function buildForIdea(params: {
@@ -79,6 +87,7 @@ async function buildForIdea(params: {
   buildId: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
   send: (data: Record<string, unknown>) => Uint8Array;
+  abortSignal?: AbortSignal;
 }) {
   let fullText = "";
   let lastPersistedAt = Date.now();
@@ -99,7 +108,8 @@ async function buildForIdea(params: {
         content: `Idea:\nTitle: ${params.title}\nDescription: ${params.description}\n\nProduce Markdown with:\n## Plan\n- **Landing page:** ...\n- **MVP app:** ...\nKeep each bullet to 1–2 sentences.`,
       },
     ],
-    0.2
+    0.2,
+    { signal: params.abortSignal }
   );
 
   params.controller.enqueue(params.send({ type: "reasoning", content: reasoningRaw }));
@@ -123,6 +133,7 @@ async function buildForIdea(params: {
   for await (const chunk of callGLMStreamTagged(codegenPrompt, 0.35, {
     timeoutMs: 120000,
     maxOutputChars: 240000,
+    signal: params.abortSignal,
   })) {
     if (chunk.kind === "reasoning") {
       params.controller.enqueue(
@@ -148,7 +159,7 @@ async function buildForIdea(params: {
     params.controller.enqueue(
       params.send({ type: "status", message: "Repairing malformed model output..." })
     );
-    parsed = await repairBuildPayload(fullText);
+    parsed = await repairBuildPayload(fullText, params.abortSignal);
   }
 
   if (!parsed) {
@@ -183,11 +194,18 @@ async function followExistingBuild(params: {
   ideaId: string;
   controller: ReadableStreamDefaultController<Uint8Array>;
   send: (data: Record<string, unknown>) => Uint8Array;
+  abortSignal?: AbortSignal;
 }) {
   let sent = 0;
   let attempts = 0;
 
   while (attempts < 240) {
+    if (params.abortSignal?.aborted) {
+      params.controller.enqueue(
+        params.send({ type: "error", message: "Build stopped (you left the stream)" })
+      );
+      return;
+    }
     const current = await getBuildByIdeaId(params.ideaId);
     if (!current) {
       params.controller.enqueue(
@@ -239,6 +257,7 @@ async function followExistingBuild(params: {
 export async function GET(request: NextRequest) {
   const ideaId = request.nextUrl.searchParams.get("ideaId");
   const forceRebuild = request.nextUrl.searchParams.get("forceRebuild") === "1";
+  const abortSignal = request.signal;
   const encoder = new TextEncoder();
 
   const send = (data: Record<string, unknown>) =>
@@ -285,7 +304,7 @@ export async function GET(request: NextRequest) {
 
         if (existing?.status === "building" && !isStaleBuilding && !forceRebuild) {
           controller.enqueue(send({ type: "status", message: "Joining live build..." }));
-          await followExistingBuild({ ideaId, controller, send });
+          await followExistingBuild({ ideaId, controller, send, abortSignal });
           controller.close();
           return;
         }
@@ -314,6 +333,7 @@ export async function GET(request: NextRequest) {
               buildId: existing.id,
               controller,
               send,
+              abortSignal,
             });
             controller.close();
             return;
@@ -336,16 +356,24 @@ export async function GET(request: NextRequest) {
           buildId: created.id,
           controller,
           send,
+          abortSignal,
         });
 
         controller.close();
       } catch (error) {
+        const aborted = isAbortError(error);
         const message = error instanceof Error ? error.message : "Unknown error";
         const existing = await getBuildByIdeaId(ideaId);
         if (existing && existing.status === "building") {
-          await failBuild(existing.id, message, existing.stream_text || "");
+          await failBuild(
+            existing.id,
+            aborted ? "Stopped by user" : message,
+            existing.stream_text || ""
+          );
         }
-        controller.enqueue(send({ type: "error", message }));
+        controller.enqueue(
+          send({ type: "error", message: aborted ? "Build stopped" : message })
+        );
         controller.close();
       }
     },

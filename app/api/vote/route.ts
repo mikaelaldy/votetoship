@@ -24,7 +24,10 @@ export async function POST(request: NextRequest) {
     const ideas = await getActiveIdeas();
     const exists = ideas.some((idea) => idea.id === body.ideaId);
     if (!exists) {
-      return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Idea not in the current battle (refresh the page or try again)." },
+        { status: 400 }
+      );
     }
 
     const ip =
