@@ -3,11 +3,7 @@
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  clearStoredAdminToken,
-  getStoredAdminToken,
-  setStoredAdminToken,
-} from "@/lib/admin-client";
+import { getStoredAdminToken } from "@/lib/admin-client";
 import { BUILD_UPVOTE_THRESHOLD } from "@/lib/constants";
 
 interface Idea {
@@ -185,37 +181,6 @@ function LeaderboardContent() {
     }
   };
 
-  const toggleAdmin = async () => {
-    if (isAdmin) {
-      clearStoredAdminToken();
-      setIsAdmin(false);
-      setNotice("Admin mode turned off.");
-      return;
-    }
-
-    const token = window.prompt("Enter admin token");
-    if (!token) return;
-    setStoredAdminToken(token.trim());
-
-    const res = await fetch("/api/admin", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-token": token.trim(),
-      },
-      body: JSON.stringify({ action: "ping" }),
-    });
-
-    if (!res.ok) {
-      clearStoredAdminToken();
-      setNotice("Admin token was rejected.");
-      return;
-    }
-
-    setIsAdmin(true);
-    setNotice("Admin mode enabled.");
-  };
-
   const handleBuild = useCallback(
     (ideaId: string, upvotes: number) => {
       if (!isAdmin && upvotes < BUILD_UPVOTE_THRESHOLD) {
@@ -236,14 +201,9 @@ function LeaderboardContent() {
           <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link href="/arena" className="pill-button pill-button-secondary">
-              Back to swipe voting
-            </Link>
-            <button onClick={() => void toggleAdmin()} className="pill-button pill-button-secondary">
-              {isAdmin ? "Admin on" : "Admin"}
-            </button>
-          </div>
+          <Link href="/arena" className="pill-button pill-button-secondary">
+            Back to swipe voting
+          </Link>
         </div>
       </nav>
 

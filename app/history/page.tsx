@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  clearStoredAdminToken,
-  getStoredAdminToken,
-  setStoredAdminToken,
-} from "@/lib/admin-client";
+import { getStoredAdminToken } from "@/lib/admin-client";
 
 interface BuildRow {
   id: string;
@@ -64,38 +60,6 @@ export default function HistoryPage() {
     return { inProgress, failed, completed };
   }, [builds]);
 
-  const toggleAdmin = async () => {
-    if (isAdmin) {
-      clearStoredAdminToken();
-      setIsAdmin(false);
-      setNotice("Admin mode turned off.");
-      return;
-    }
-
-    const token = window.prompt("Enter admin token");
-    if (!token) return;
-    const trimmed = token.trim();
-    setStoredAdminToken(trimmed);
-
-    const res = await fetch("/api/admin", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-token": trimmed,
-      },
-      body: JSON.stringify({ action: "ping" }),
-    });
-
-    if (!res.ok) {
-      clearStoredAdminToken();
-      setNotice("Admin token was rejected.");
-      return;
-    }
-
-    setIsAdmin(true);
-    setNotice("Admin mode enabled.");
-  };
-
   const deleteBuild = async (buildId: string) => {
     setAdminBusy(true);
     try {
@@ -130,14 +94,9 @@ export default function HistoryPage() {
           <Link href="/" className="text-lg font-bold text-[var(--color-text-primary)]">
             VoteToShip
           </Link>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link href="/arena" className="pill-button pill-button-secondary">
-              Arena
-            </Link>
-            <button onClick={() => void toggleAdmin()} className="pill-button pill-button-secondary">
-              {isAdmin ? "Admin on" : "Admin"}
-            </button>
-          </div>
+          <Link href="/arena" className="pill-button pill-button-secondary">
+            Arena
+          </Link>
         </div>
       </nav>
 

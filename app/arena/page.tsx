@@ -3,11 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  clearStoredAdminToken,
-  getStoredAdminToken,
-  setStoredAdminToken,
-} from "@/lib/admin-client";
+import { getStoredAdminToken } from "@/lib/admin-client";
 import { BUILD_UPVOTE_THRESHOLD } from "@/lib/constants";
 
 interface Idea {
@@ -273,39 +269,6 @@ function ArenaContent() {
     })();
   }, [fetchAll, loading, pendingIdeas.length, refilling]);
 
-  const toggleAdmin = async () => {
-    if (isAdmin) {
-      clearStoredAdminToken();
-      setIsAdmin(false);
-      setNotice("Admin mode turned off.");
-      return;
-    }
-
-    const token = window.prompt("Enter admin token");
-    if (!token) return;
-
-    const trimmed = token.trim();
-    setStoredAdminToken(trimmed);
-    const res = await fetch("/api/admin", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-token": trimmed,
-      },
-      body: JSON.stringify({ action: "ping" }),
-    });
-
-    if (!res.ok) {
-      clearStoredAdminToken();
-      setIsAdmin(false);
-      setNotice("Admin token was rejected.");
-      return;
-    }
-
-    setIsAdmin(true);
-    setNotice("Admin mode enabled.");
-  };
-
   const runAdminAction = async (body: Record<string, string>) => {
     setAdminBusy(true);
     try {
@@ -373,9 +336,6 @@ function ArenaContent() {
                 Reset
               </button>
             )}
-            <button onClick={() => void toggleAdmin()} className="pill-button pill-button-secondary">
-              {isAdmin ? "Admin on" : "Admin"}
-            </button>
           </div>
         </div>
       </nav>
