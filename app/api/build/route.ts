@@ -29,6 +29,15 @@ function buildReasoning(title: string, description: string) {
   return `${title} becomes a focused landing page and a lightweight MVP for: ${description}`;
 }
 
+function hasCompleteHtmlDocument(html: string) {
+  const trimmed = html.trim();
+  return (
+    trimmed.startsWith("<!DOCTYPE html>") &&
+    /<\/html>\s*$/i.test(trimmed) &&
+    /<\/body>\s*<\/html>\s*$/i.test(trimmed)
+  );
+}
+
 async function streamHtmlDocument(params: {
   kind: "landing" | "app";
   title: string;
@@ -38,20 +47,7 @@ async function streamHtmlDocument(params: {
   send: (data: Record<string, unknown>) => Uint8Array;
   abortSignal?: AbortSignal;
 }) {
-  const currentText = { value: "" };
-
-  params.controller.enqueue(params.send({ type: "phase", phase: params.kind }));
-  params.controller.enqueue(
-    params.send({
-      type: "status",
-      message:
-        params.kind === "landing"
-          ? "Generating landing page HTML first..."
-          : "Landing page done. Generating MVP app HTML...",
-    })
-  );
-
-  const prompt =
+  const basePrompt =
     params.kind === "landing"
       ? `Build a responsive marketing landing page for this idea.
 Title: ${params.title}
@@ -62,6 +58,8 @@ Requirements:
 - Use Tailwind via CDN and vanilla JavaScript only
 - Keep it polished, conversion-focused, and mobile friendly
 - Include hero, value props, feature section, workflow section, CTA, and footer
+- Keep custom CSS short and avoid unnecessary libraries
+- End the response with </body></html>
 - No markdown fences, no commentary, no JSON`
       : `Build a responsive MVP web app for this idea.
 Title: ${params.title}
@@ -72,55 +70,126 @@ Requirements:
 - Use Tailwind via CDN and vanilla JavaScript only
 - Build a realistic single-page product interface with working demo interactions
 - Include clear forms, lists, states, and empty/loading/error treatments where appropriate
-- No markdown fences, no commentary, no JSON`;
+ - Keep custom CSS short and avoid unnecessary libraries
+ - End the response with </body></html>
+ - No markdown fences, no commentary, no JSON`;
 
-  for await (const chunk of callGLMStream(
-    [
-      {
-        role: "system",
-        content:
-          "You are an expert web developer. Return only valid standalone HTML. Do not include analysis, thinking, markdown fences, or any text before or after the HTML document.",
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-    0.15,
+  const attempts = [
     {
-      timeoutMs: 120000,
-      maxOutputChars: 180000,
-      signal: params.abortSignal,
-    }
-  )) {
-    currentText.value += chunk;
+      label:
+        params.kind === "landing"
+          ? "Generating landing page HTML first..."
+          : "Landing page done. Generating MVP app HTML...",
+      prompt: basePrompt,
+      maxOutputChars: 140000,
+      timeoutMs: 90000,
+    },
+    {
+      label:
+        params.kind === "landing"
+          ? "Landing page ran long. Retrying with a tighter output..."
+          : "MVP app ran long. Retrying with a tighter output...",
+      prompt: `${basePrompt}
+
+Retry constraints:
+- Keep the document under 450 lines
+- Avoid external fonts, icon packs, and long style blocks
+- Prefer compact sections and concise markup
+- The final line must be </html>`,
+      maxOutputChars: 100000,
+      timeoutMs: 90000,
+    },
+  ];
+
+  let lastError: Error | null = null;
+
+  for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+    const attempt = attempts[attemptIndex];
+    const currentText = { value: "" };
+
+    params.controller.enqueue(params.send({ type: "phase", phase: params.kind }));
     params.controller.enqueue(
       params.send({
-        type: params.kind === "landing" ? "landing_chunk" : "app_chunk",
-        content: chunk,
+        type: "status",
+        message: attempt.label,
       })
     );
 
-    await updateBuildOutputs({
-      buildId: params.buildId,
-      landingHtml: params.kind === "landing" ? currentText.value : undefined,
-      appHtml: params.kind === "app" ? currentText.value : undefined,
-      streamText: currentText.value,
-      reasoning: buildReasoning(params.title, params.description),
-    });
+    if (attemptIndex > 0) {
+      await updateBuildOutputs({
+        buildId: params.buildId,
+        landingHtml: params.kind === "landing" ? "" : undefined,
+        appHtml: params.kind === "app" ? "" : undefined,
+      });
+    }
+
+    try {
+      for await (const chunk of callGLMStream(
+        [
+          {
+            role: "system",
+            content:
+              "You are an expert web developer. Return only valid standalone HTML. Do not include analysis, thinking, markdown fences, or any text before or after the HTML document.",
+          },
+          {
+            role: "user",
+            content: attempt.prompt,
+          },
+        ],
+        0.1,
+        {
+          timeoutMs: attempt.timeoutMs,
+          maxOutputChars: attempt.maxOutputChars,
+          signal: params.abortSignal,
+        }
+      )) {
+        currentText.value += chunk;
+        params.controller.enqueue(
+          params.send({
+            type: params.kind === "landing" ? "landing_chunk" : "app_chunk",
+            content: chunk,
+          })
+        );
+
+        await updateBuildOutputs({
+          buildId: params.buildId,
+          landingHtml: params.kind === "landing" ? currentText.value : undefined,
+          appHtml: params.kind === "app" ? currentText.value : undefined,
+          streamText: currentText.value,
+          reasoning: buildReasoning(params.title, params.description),
+        });
+      }
+
+      if (!hasCompleteHtmlDocument(currentText.value)) {
+        throw new Error(`${params.kind} build returned incomplete HTML`);
+      }
+
+      params.controller.enqueue(
+        params.send({
+          type: params.kind === "landing" ? "landing_done" : "app_done",
+        })
+      );
+
+      return currentText.value;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("HTML generation failed");
+      if (attemptIndex === attempts.length - 1) {
+        break;
+      }
+
+      params.controller.enqueue(
+        params.send({
+          type: "status",
+          message:
+            params.kind === "landing"
+              ? "Landing page timed out or came back incomplete. Retrying..."
+              : "MVP app timed out or came back incomplete. Retrying...",
+        })
+      );
+    }
   }
 
-  if (!currentText.value.trim().startsWith("<!DOCTYPE html")) {
-    throw new Error(`${params.kind} build did not return a standalone HTML document`);
-  }
-
-  params.controller.enqueue(
-    params.send({
-      type: params.kind === "landing" ? "landing_done" : "app_done",
-    })
-  );
-
-  return currentText.value;
+  throw lastError ?? new Error(`${params.kind} build failed`);
 }
 
 async function buildForIdea(params: {
